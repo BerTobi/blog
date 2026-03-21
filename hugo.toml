@@ -1,0 +1,10 @@
+baseURL = 'https://bertobi.github.io/'
+languageCode = 'en-us'
+title = "Tobias's Blog"
+theme = 'paper'
+
+[params]
+  color = 'linen'
+  avatar = ''
+  name = 'Tobias'
+  bio = ''
