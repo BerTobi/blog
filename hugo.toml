@@ -1,4 +1,4 @@
-baseURL = 'https://bertobi.github.io/'
+baseURL = 'https://bertobi.github.io/blog/'
 languageCode = 'en-us'
 title = "Tobias's Blog"
 theme = 'paper'
