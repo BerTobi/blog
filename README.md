@@ -19,9 +19,9 @@ Post body in Markdown…
 ## Deploys
 
 The GitHub Actions workflow (`.github/workflows/deploy.yml`) builds the site and
-publishes it to GitHub Pages **on every push to the `main` branch**. Pushing to
-`master` (the default branch) does **not** deploy — anything you want live must
-land on `main`.
+publishes it to GitHub Pages **on every push to the `master` branch** (the default
+branch, and the only branch the `github-pages` environment permits to deploy).
+Posts, the tool, and the workflow all live on `master`.
 
 ## Blog Publisher (`blog-publisher.html`)
 
@@ -48,7 +48,7 @@ GitHub — it's never committed. You'll re-enter it once per device.
 - Fill in **Title**, **Date**, and optional **Tags**. The filename is generated
   automatically as `YYYY-MM-DD-slug.md`.
 - Hit **Publish** (or `Ctrl/Cmd+Enter`). The app commits the file to
-  `content/posts/` via the GitHub Contents API **on the `main` branch**, which
+  `content/posts/` via the GitHub Contents API **on the `master` branch**, which
   triggers the deploy. The post is live in ~1–2 minutes.
 
 ### Features

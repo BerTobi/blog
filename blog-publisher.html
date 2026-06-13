@@ -300,7 +300,7 @@
   // ---------- storage keys ----------
   var K_TOKEN='bp_token', K_SETTINGS='bp_settings', K_DRAFTS='bp_drafts', K_CURRENT='bp_current', K_UI='bp_ui', K_THEME='bp_theme';
 
-  var DEFAULT_SETTINGS = { owner:'BerTobi', repo:'blog', branch:'main', postsPath:'content/posts' };
+  var DEFAULT_SETTINGS = { owner:'BerTobi', repo:'blog', branch:'master', postsPath:'content/posts' };
 
   // ---------- tiny helpers ----------
   var $ = function(id){ return document.getElementById(id); };
@@ -668,7 +668,7 @@
     $('repoInput').value=settings.repo;
     $('branchInput').value=settings.branch;
     $('pathInput').value=settings.postsPath;
-    $('branchHint').innerHTML='Deploys run from the branch your GitHub Actions workflow watches. For this repo that is <code>main</code>.';
+    $('branchHint').innerHTML='Deploys run from the branch your GitHub Actions workflow watches. For this repo that is <code>master</code>.';
     $('testResult').textContent='';
     $('overlay').classList.add('show');
     setTimeout(function(){ (token?$('tokenInput'):$('tokenInput')).focus(); }, 50);
