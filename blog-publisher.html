@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blog Publisher</title>
+<script>
+  /* Set theme before first paint to avoid a flash of the wrong colors. */
+  (function(){try{
+    var t=localStorage.getItem('bp_theme'); t=t?JSON.parse(t):null;
+    if(t!=='light'&&t!=='dark') t=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light';
+    document.documentElement.setAttribute('data-theme', t);
+  }catch(e){ document.documentElement.setAttribute('data-theme','light'); }})();
+</script>
+<style>
+  :root{
+    --bg:#faf7f2; --panel:#fffdf9; --ink:#2b2620; --muted:#8a8178;
+    --line:#e7e0d6; --accent:#b5651d; --accent-ink:#fff;
+    --ok:#2f7d4f; --err:#b23b3b; --info:#5b7a9a;
+    --shadow:0 1px 3px rgba(60,45,25,.08), 0 6px 24px rgba(60,45,25,.06);
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  :root[data-theme="dark"]{
+    --bg:#1c1a17; --panel:#252220; --ink:#ece6dd; --muted:#9b938a;
+    --line:#383430; --accent:#d98a45; --accent-ink:#1c1a17;
+    --ok:#7fc99a; --err:#e58a8a; --info:#9bb6d4;
+    --shadow:0 1px 3px rgba(0,0,0,.3), 0 6px 24px rgba(0,0,0,.25);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    font-family:var(--sans); color:var(--ink); background:var(--bg);
+    display:flex; flex-direction:column; height:100vh; overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+  button{font-family:inherit; cursor:pointer}
+
+  /* ---- top bar ---- */
+  header{
+    display:flex; align-items:center; gap:12px;
+    padding:10px 16px; border-bottom:1px solid var(--line);
+    background:var(--panel); flex:0 0 auto;
+  }
+  header .brand{font-weight:700; letter-spacing:.2px; font-size:15px; display:flex; align-items:center; gap:8px}
+  header .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);display:inline-block}
+  header .spacer{flex:1}
+  .iconbtn{
+    border:1px solid var(--line); background:var(--panel); color:var(--ink);
+    border-radius:8px; padding:7px 12px; font-size:13px; transition:.15s;
+  }
+  .iconbtn:hover{border-color:var(--accent); color:var(--accent)}
+  .iconbtn.on{border-color:var(--accent); color:var(--accent); background:color-mix(in srgb, var(--accent) 12%, var(--panel))}
+  .btn-primary{
+    background:var(--accent); color:var(--accent-ink); border:1px solid var(--accent);
+    border-radius:8px; padding:8px 18px; font-size:13px; font-weight:600; transition:.15s;
+  }
+  .btn-primary:hover{filter:brightness(1.07)}
+  .btn-primary:disabled{opacity:.5; cursor:not-allowed}
+
+  /* ---- main layout ---- */
+  main{flex:1; display:flex; min-height:0}
+  aside{
+    width:250px; flex:0 0 auto; border-right:1px solid var(--line);
+    background:var(--panel); display:flex; flex-direction:column; min-height:0;
+    transition:margin-left .2s;
+  }
+  aside.collapsed{margin-left:-250px}
+  .aside-head{display:flex; align-items:center; gap:8px; padding:12px; border-bottom:1px solid var(--line)}
+  .aside-head .title{font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); flex:1}
+  .newbtn{border:1px dashed var(--line); background:none; color:var(--accent); border-radius:7px; padding:5px 10px; font-size:12px; font-weight:600}
+  .newbtn:hover{border-color:var(--accent)}
+  .draftlist{overflow:auto; flex:1; padding:8px}
+  .draft{
+    padding:9px 10px; border-radius:8px; margin-bottom:4px; cursor:pointer;
+    border:1px solid transparent; position:relative;
+  }
+  .draft:hover{background:var(--bg)}
+  .draft.active{background:var(--bg); border-color:var(--line)}
+  .draft .dt{font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding-right:18px}
+  .draft .dm{font-size:11px; color:var(--muted); margin-top:2px; display:flex; gap:6px; align-items:center}
+  .draft .badge{font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--ok); border:1px solid var(--ok); border-radius:4px; padding:0 4px}
+  .draft .badge.amber{color:var(--accent); border-color:var(--accent)}
+  .draft .del{position:absolute; top:7px; right:7px; opacity:0; border:none; background:none; color:var(--muted); font-size:14px; line-height:1; padding:2px 4px; border-radius:5px}
+  .draft:hover .del{opacity:1}
+  .draft .del:hover{color:var(--err); background:var(--bg)}
+  .emptydrafts{color:var(--muted); font-size:12px; text-align:center; padding:24px 12px}
+
+  /* ---- editor area ---- */
+  .editor-area{flex:1; display:flex; flex-direction:column; min-width:0; min-height:0}
+  .metabar{
+    display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;
+    padding:12px 16px; border-bottom:1px solid var(--line); background:var(--panel);
+  }
+  .field{display:flex; flex-direction:column; gap:3px}
+  .field.title-field{flex:1 1 280px; min-width:200px}
+  .field label{font-size:10px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); font-weight:600}
+  .field input{
+    font-family:inherit; font-size:14px; color:var(--ink); background:var(--bg);
+    border:1px solid var(--line); border-radius:7px; padding:8px 10px; width:100%;
+  }
+  .field input:focus{outline:none; border-color:var(--accent)}
+  .filename{font-family:var(--mono); font-size:11px; color:var(--muted); width:100%; margin-top:2px}
+  .filename b{color:var(--accent); font-weight:600}
+  .draftchk{display:flex; align-items:center; gap:6px; padding-bottom:8px; font-size:13px; color:var(--muted); cursor:pointer; white-space:nowrap; user-select:none}
+  .draftchk input{width:15px; height:15px; accent-color:var(--accent); cursor:pointer; margin:0}
+  .draftchk.on{color:var(--accent); font-weight:600}
+
+  .toolbar{display:flex; gap:4px; padding:6px 16px; border-bottom:1px solid var(--line); background:var(--panel); flex-wrap:wrap; align-items:center}
+  .toolbar button{border:1px solid transparent; background:none; color:var(--muted); border-radius:6px; padding:5px 9px; font-size:13px; min-width:30px}
+  .toolbar button:hover{background:var(--bg); color:var(--ink); border-color:var(--line)}
+  .toolbar .sep{width:1px; height:18px; background:var(--line); margin:0 4px}
+  .toolbar .count{margin-left:auto; font-size:11px; color:var(--muted); font-variant-numeric:tabular-nums}
+
+  .panes{flex:1; display:flex; min-height:0}
+  .pane{flex:1 1 50%; min-width:0; overflow:auto}
+  .pane.edit{border-right:1px solid var(--line)}
+  #body{
+    width:100%; height:100%; border:none; resize:none; outline:none;
+    background:var(--bg); color:var(--ink); padding:24px 28px;
+    font-family:var(--mono); font-size:14.5px; line-height:1.7; tab-size:2;
+  }
+  .preview{padding:24px 32px; line-height:1.7; font-size:15.5px; max-width:760px}
+  .preview h1,.preview h2,.preview h3,.preview h4{line-height:1.3; margin:1.4em 0 .5em}
+  .preview h1{font-size:1.8em} .preview h2{font-size:1.45em} .preview h3{font-size:1.2em}
+  .preview h1:first-child,.preview h2:first-child{margin-top:0}
+  .preview p{margin:0 0 1em}
+  .preview a{color:var(--accent)}
+  .preview code{font-family:var(--mono); font-size:.88em; background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:1px 5px}
+  .preview pre{background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 16px; overflow:auto}
+  .preview pre code{background:none; border:none; padding:0; font-size:.85em}
+  .preview blockquote{margin:0 0 1em; padding:2px 16px; border-left:3px solid var(--accent); color:var(--muted)}
+  .preview ul,.preview ol{margin:0 0 1em; padding-left:1.6em}
+  .preview li{margin:.2em 0}
+  .preview img{max-width:100%; border-radius:8px}
+  .preview hr{border:none; border-top:1px solid var(--line); margin:1.6em 0}
+  .preview table{border-collapse:collapse; margin:0 0 1em; font-size:.92em}
+  .preview th,.preview td{border:1px solid var(--line); padding:6px 11px}
+  .preview th{background:var(--panel)}
+  .preview-empty{color:var(--muted); font-style:italic}
+
+  /* ---- status bar ---- */
+  .statusbar{
+    flex:0 0 auto; padding:8px 16px; border-top:1px solid var(--line); background:var(--panel);
+    font-size:12.5px; color:var(--muted); display:flex; align-items:center; gap:10px; min-height:36px;
+  }
+  .statusbar.ok{color:var(--ok)} .statusbar.err{color:var(--err)} .statusbar.info{color:var(--info)}
+  .statusbar a{color:inherit; font-weight:600}
+  .statusbar .savestate{margin-left:auto; color:var(--muted); font-size:11px}
+
+  /* ---- modal ---- */
+  .overlay{position:fixed; inset:0; background:rgba(30,22,12,.45); display:none; align-items:center; justify-content:center; padding:20px; z-index:50}
+  .overlay.show{display:flex}
+  .modal{background:var(--panel); border-radius:14px; box-shadow:var(--shadow); width:520px; max-width:100%; max-height:90vh; overflow:auto; padding:24px}
+  .modal h2{margin:0 0 4px; font-size:18px}
+  .modal .sub{color:var(--muted); font-size:13px; margin:0 0 18px}
+  .modal label{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); font-weight:600; margin:14px 0 4px}
+  .modal input{width:100%; font-family:inherit; font-size:14px; padding:9px 11px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--ink)}
+  .modal input:focus{outline:none; border-color:var(--accent)}
+  .modal .row{display:flex; gap:10px}
+  .modal .row .col{flex:1}
+  .modal .hint{font-size:12px; color:var(--muted); margin:6px 0 0; line-height:1.5}
+  .modal .hint a{color:var(--accent)}
+  .modal .actions{display:flex; gap:10px; margin-top:22px; align-items:center}
+  .modal .actions .spacer{flex:1}
+  .modal .testresult{font-size:12.5px; margin-top:10px}
+  .modal .testresult.ok{color:var(--ok)} .modal .testresult.err{color:var(--err)}
+  .callout{background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:14px 16px; font-size:13px; line-height:1.6; margin:4px 0 6px}
+  .callout ol{margin:6px 0 0; padding-left:20px}
+  .callout li{margin:4px 0}
+  .callout code{font-family:var(--mono); font-size:.9em; background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:1px 5px}
+</style>
+</head>
+<body>
+
+<header>
+  <button class="iconbtn" id="toggleSidebar" title="Toggle drafts">☰</button>
+  <div class="brand"><span class="dot"></span> Blog Publisher</div>
+  <div class="spacer"></div>
+  <button class="iconbtn" id="syncBtn" title="Sync editor & preview scrolling">⇅ Sync</button>
+  <button class="iconbtn" id="themeBtn" title="Toggle light / dark">☾</button>
+  <button class="iconbtn" id="settingsBtn" title="Settings & token">⚙ Settings</button>
+  <button class="btn-primary" id="publishBtn" title="Publish to GitHub (Ctrl/Cmd+Enter)">Publish ↗</button>
+</header>
+
+<main>
+  <aside id="sidebar">
+    <div class="aside-head">
+      <span class="title">Drafts</span>
+      <button class="newbtn" id="newBtn">+ New</button>
+    </div>
+    <div class="draftlist" id="draftList"></div>
+  </aside>
+
+  <div class="editor-area">
+    <div class="metabar">
+      <div class="field title-field">
+        <label for="title">Title</label>
+        <input id="title" type="text" placeholder="My post title" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="date">Date</label>
+        <input id="date" type="date">
+      </div>
+      <div class="field" style="flex:1 1 200px">
+        <label for="tags">Tags (comma-separated)</label>
+        <input id="tags" type="text" placeholder="hugo, writing" autocomplete="off">
+      </div>
+      <label class="draftchk" id="draftLabel" title="Commit with draft: true — keeps the post in the repo but hidden from your live site until you uncheck and re-publish.">
+        <input type="checkbox" id="draftToggle"> Stage as draft
+      </label>
+      <div class="filename">→ <b id="filenamePreview">content/posts/…</b></div>
+    </div>
+
+    <div class="toolbar" id="toolbar">
+      <button data-md="h" title="Heading">H</button>
+      <button data-md="b" title="Bold (Ctrl/Cmd+B)"><b>B</b></button>
+      <button data-md="i" title="Italic (Ctrl/Cmd+I)"><i>I</i></button>
+      <button data-md="code" title="Inline code">&lt;/&gt;</button>
+      <span class="sep"></span>
+      <button data-md="link" title="Link (Ctrl/Cmd+K)">🔗</button>
+      <button data-md="quote" title="Quote">❝</button>
+      <button data-md="ul" title="List">•</button>
+      <button data-md="ol" title="Numbered list">1.</button>
+      <button data-md="fence" title="Code block">{ }</button>
+      <span class="count" id="wordcount">0 words</span>
+    </div>
+
+    <div class="panes">
+      <div class="pane edit">
+        <textarea id="body" placeholder="Write your post in Markdown…" spellcheck="true"></textarea>
+      </div>
+      <div class="pane">
+        <div class="preview" id="preview"></div>
+      </div>
+    </div>
+
+    <div class="statusbar" id="statusbar">
+      <span id="statusmsg">Ready.</span>
+      <span class="savestate" id="savestate"></span>
+    </div>
+  </div>
+</main>
+
+<!-- Settings / onboarding modal -->
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <h2 id="modalTitle">Settings</h2>
+    <p class="sub">Your token is stored only in this browser (localStorage) and is sent only to GitHub.</p>
+
+    <div class="callout" id="tokenHelp">
+      <strong>Need a token?</strong> The publisher commits straight to your repo via the GitHub API, so it needs a personal access token with repo write access.
+      <ol>
+        <li>Open <a href="https://github.com/settings/tokens/new?scopes=repo&description=Blog%20Publisher" target="_blank" rel="noopener">github.com/settings/tokens/new</a> (scope &amp; name are pre-filled).</li>
+        <li>Confirm the <code>repo</code> scope is checked, pick an expiration, and click <em>Generate token</em>.</li>
+        <li>Copy the <code>ghp_…</code> value and paste it below. You won't be able to see it again on GitHub.</li>
+      </ol>
+      Prefer fine-grained tokens? Create one scoped to the <code>blog</code> repo with <em>Contents: Read and write</em>.
+    </div>
+
+    <label for="tokenInput">GitHub personal access token</label>
+    <input id="tokenInput" type="password" placeholder="ghp_… or github_pat_…" autocomplete="off">
+
+    <div class="row">
+      <div class="col">
+        <label for="ownerInput">Owner</label>
+        <input id="ownerInput" type="text" autocomplete="off">
+      </div>
+      <div class="col">
+        <label for="repoInput">Repo</label>
+        <input id="repoInput" type="text" autocomplete="off">
+      </div>
+    </div>
+    <div class="row">
+      <div class="col">
+        <label for="branchInput">Branch</label>
+        <input id="branchInput" type="text" autocomplete="off">
+      </div>
+      <div class="col">
+        <label for="pathInput">Posts folder</label>
+        <input id="pathInput" type="text" autocomplete="off">
+      </div>
+    </div>
+    <p class="hint" id="branchHint"></p>
+
+    <div class="testresult" id="testResult"></div>
+
+    <div class="actions">
+      <button class="iconbtn" id="testBtn">Test connection</button>
+      <div class="spacer"></div>
+      <button class="iconbtn" id="cancelBtn">Cancel</button>
+      <button class="btn-primary" id="saveSettingsBtn">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+(function(){
+  // ---------- storage keys ----------
+  var K_TOKEN='bp_token', K_SETTINGS='bp_settings', K_DRAFTS='bp_drafts', K_CURRENT='bp_current', K_UI='bp_ui', K_THEME='bp_theme';
+
+  var DEFAULT_SETTINGS = { owner:'BerTobi', repo:'blog', branch:'main', postsPath:'content/posts' };
+
+  // ---------- tiny helpers ----------
+  var $ = function(id){ return document.getElementById(id); };
+  function load(key, fallback){
+    try{ var v = localStorage.getItem(key); return v==null ? fallback : JSON.parse(v); }
+    catch(e){ return fallback; }
+  }
+  function save(key, val){ localStorage.setItem(key, JSON.stringify(val)); }
+  function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+  function todayISO(){
+    var d=new Date(), p=function(n){ return String(n).padStart(2,'0'); };
+    return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());
+  }
+  function debounce(fn, ms){
+    var t; return function(){ var a=arguments, c=this; clearTimeout(t); t=setTimeout(function(){ fn.apply(c,a); }, ms); };
+  }
+  function relTime(ts){
+    if(!ts) return '';
+    var s = Math.floor((Date.now()-ts)/1000);
+    if(s<60) return 'just now';
+    if(s<3600) return Math.floor(s/60)+'m ago';
+    if(s<86400) return Math.floor(s/3600)+'h ago';
+    return Math.floor(s/86400)+'d ago';
+  }
+
+  function slugify(s){
+    return (s||'').toString().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+      .toLowerCase().trim()
+      .replace(/[^a-z0-9]+/g,'-')
+      .replace(/^-+|-+$/g,'')
+      .replace(/-{2,}/g,'-') || 'post';
+  }
+  function parseTags(s){
+    return (s||'').split(',').map(function(t){ return t.trim(); }).filter(Boolean);
+  }
+  function utf8ToBase64(str){
+    var bytes = new TextEncoder().encode(str), bin='', chunk=0x8000;
+    for(var i=0;i<bytes.length;i+=chunk){
+      bin += String.fromCharCode.apply(null, bytes.subarray(i, i+chunk));
+    }
+    return btoa(bin);
+  }
+  function buildFrontMatter(title, date, tags, draft){
+    var t = title.replace(/\\/g,'\\\\').replace(/"/g,'\\"');
+    var tagStr = tags.length ? '['+tags.map(function(x){ return '"'+x.replace(/"/g,'\\"')+'"'; }).join(', ')+']' : '[]';
+    return '---\ntitle: "'+t+'"\ndate: '+date+'\ntags: '+tagStr+'\ndraft: '+(draft?'true':'false')+'\n---\n';
+  }
+  function fullFileContent(title, date, tags, body, draft){
+    return buildFrontMatter(title, date, tags, draft) + '\n' + body.replace(/\s+$/,'') + '\n';
+  }
+
+  // ================= Markdown renderer (self-contained) =================
+  function escapeHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function inlineMd(raw){
+    var codes=[];
+    var t = raw.replace(/`([^`]+)`/g, function(m,c){ codes.push(c); return '\uE000'+(codes.length-1)+'\uE000'; });
+    t = escapeHtml(t);
+    t = t.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, function(m,alt,src){ return '<img src="'+src+'" alt="'+alt+'">'; });
+    t = t.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function(m,txt,href){ return '<a href="'+href+'" target="_blank" rel="noopener">'+txt+'</a>'; });
+    t = t.replace(/\*\*([^*]+?)\*\*/g,'<strong>$1</strong>').replace(/__([^_]+?)__/g,'<strong>$1</strong>');
+    t = t.replace(/\*([^*\s][^*]*?)\*/g,'<em>$1</em>').replace(/(^|[\s(])_([^_]+?)_(?=$|[\s).,!?])/g,'$1<em>$2</em>');
+    t = t.replace(/~~([^~]+?)~~/g,'<del>$1</del>');
+    t = t.replace(/\uE000(\d+)\uE000/g, function(m,i){ return '<code>'+escapeHtml(codes[+i])+'</code>'; });
+    return t;
+  }
+
+  function renderItems(items){
+    if(!items.length) return '';
+    var html='', k=0;
+    while(k<items.length){
+      var ordered=items[k].ordered, tag=ordered?'ol':'ul';
+      html += '<'+tag+'>';
+      while(k<items.length && items[k].ordered===ordered){
+        var it=items[k];
+        html += '<li>' + inlineMd(it.content);
+        if(it.children.length) html += renderItems(it.children);
+        html += '</li>';
+        k++;
+      }
+      html += '</'+tag+'>';
+    }
+    return html;
+  }
+  function buildList(lines){
+    var itemRe = /^(\s*)([-*+]|\d+\.)\s+(.*)$/;
+    var root = { children:[] };
+    var stack = [{ node:root, indent:-1 }];
+    var current = null;
+    for(var n=0;n<lines.length;n++){
+      var m = lines[n].match(itemRe);
+      if(m){
+        var indent = m[1].replace(/\t/g,'    ').length;
+        var item = { content:m[3], children:[], ordered:/\d+\./.test(m[2]) };
+        while(stack.length>1 && stack[stack.length-1].indent>=indent) stack.pop();
+        stack[stack.length-1].node.children.push(item);
+        stack.push({ node:item, indent:indent });
+        current = item;
+      } else if(current && /\S/.test(lines[n])){
+        current.content += '\n' + lines[n].trim();
+      }
+    }
+    return renderItems(root.children);
+  }
+
+  function splitRow(r){ return r.replace(/^\s*\|/,'').replace(/\|\s*$/,'').split('|').map(function(c){ return c.trim(); }); }
+
+  function renderMarkdown(src){
+    src = (src||'').replace(/\r\n?/g,'\n');
+    var lines = src.split('\n'), out=[], i=0;
+    var itemRe=/^\s*([-*+]|\d+\.)\s+/, hrRe=/^\s*([-*_])(\s*\1){2,}\s*$/, hRe=/^#{1,6}\s/, fenceRe=/^(```|~~~)(.*)$/, quoteRe=/^\s*>/;
+    while(i<lines.length){
+      var line=lines[i];
+      if(/^\s*$/.test(line)){ i++; continue; }
+
+      var f=line.match(fenceRe);
+      if(f){
+        var marker=f[1], lang=f[2].trim(), code=[];
+        i++;
+        while(i<lines.length && lines[i].indexOf(marker)!==0){ code.push(lines[i]); i++; }
+        i++;
+        out.push('<pre><code'+(lang?' class="language-'+lang+'"':'')+'>'+escapeHtml(code.join('\n'))+'</code></pre>');
+        continue;
+      }
+      var h=line.match(/^(#{1,6})\s+(.*)$/);
+      if(h){ out.push('<h'+h[1].length+'>'+inlineMd(h[2].trim())+'</h'+h[1].length+'>'); i++; continue; }
+      if(hrRe.test(line)){ out.push('<hr>'); i++; continue; }
+      if(quoteRe.test(line)){
+        var q=[];
+        while(i<lines.length && quoteRe.test(lines[i])){ q.push(lines[i].replace(/^\s*>\s?/,'')); i++; }
+        out.push('<blockquote>'+renderMarkdown(q.join('\n'))+'</blockquote>');
+        continue;
+      }
+      if(line.indexOf('|')!==-1 && i+1<lines.length && /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*$/.test(lines[i+1])){
+        var heads=splitRow(line);
+        var aligns=splitRow(lines[i+1]).map(function(s){ var l=s.charAt(0)===':', r=s.charAt(s.length-1)===':'; return l&&r?'center':r?'right':l?'left':''; });
+        i+=2;
+        var th=heads.map(function(c,idx){ return '<th'+(aligns[idx]?' style="text-align:'+aligns[idx]+'"':'')+'>'+inlineMd(c)+'</th>'; }).join('');
+        var tb='';
+        while(i<lines.length && lines[i].indexOf('|')!==-1 && !/^\s*$/.test(lines[i])){
+          var cells=splitRow(lines[i]);
+          tb+='<tr>'+cells.map(function(c,idx){ return '<td'+(aligns[idx]?' style="text-align:'+aligns[idx]+'"':'')+'>'+inlineMd(c)+'</td>'; }).join('')+'</tr>';
+          i++;
+        }
+        out.push('<table><thead><tr>'+th+'</tr></thead><tbody>'+tb+'</tbody></table>');
+        continue;
+      }
+      if(itemRe.test(line)){
+        var listLines=[];
+        while(i<lines.length){
+          if(/^\s*$/.test(lines[i])){ if(i+1<lines.length && itemRe.test(lines[i+1])){ i++; continue; } break; }
+          if(itemRe.test(lines[i]) || /^\s+\S/.test(lines[i])){ listLines.push(lines[i]); i++; } else break;
+        }
+        out.push(buildList(listLines));
+        continue;
+      }
+      // paragraph
+      var para=[];
+      while(i<lines.length && !/^\s*$/.test(lines[i]) && !fenceRe.test(lines[i]) && !hRe.test(lines[i])
+            && !quoteRe.test(lines[i]) && !itemRe.test(lines[i]) && !hrRe.test(lines[i])){
+        para.push(lines[i]); i++;
+      }
+      var text = para.join('\n').replace(/ {2,}\n/g,'\uE002');
+      text = inlineMd(text).replace(/\uE002/g,'<br>').replace(/\n/g,' ');
+      out.push('<p>'+text+'</p>');
+    }
+    return out.join('\n');
+  }
+
+  // ================= application state =================
+  var settings = Object.assign({}, DEFAULT_SETTINGS, load(K_SETTINGS, {}));
+  var token = load(K_TOKEN, '') || '';
+  var drafts = load(K_DRAFTS, []);
+  var currentId = load(K_CURRENT, null);
+  var ui = load(K_UI, {});
+  if(ui.sidebar===undefined) ui.sidebar=true;
+  if(ui.scrollSync===undefined) ui.scrollSync=true;
+  var theme = load(K_THEME, null) || document.documentElement.getAttribute('data-theme') || 'light';
+
+  // element refs
+  var elTitle=$('title'), elDate=$('date'), elTags=$('tags'), elBody=$('body'), elDraft=$('draftToggle'),
+      elDraftLabel=$('draftLabel'), elPreview=$('preview'), elPreviewPane=$('preview').parentElement,
+      elFilename=$('filenamePreview'), elWordcount=$('wordcount'),
+      elDraftList=$('draftList'), elStatusbar=$('statusbar'), elStatusMsg=$('statusmsg'),
+      elSaveState=$('savestate'), elSidebar=$('sidebar'), elThemeBtn=$('themeBtn'), elSyncBtn=$('syncBtn');
+
+  // ---------- drafts ----------
+  function currentDraft(){
+    for(var i=0;i<drafts.length;i++){ if(drafts[i].id===currentId) return drafts[i]; }
+    return null;
+  }
+  function newDraft(){
+    var d = { id:uid(), title:'', date:todayISO(), tags:'', body:'', hugoDraft:false, updatedAt:Date.now(), published:false, publishedFile:'', publishedAsDraft:false };
+    drafts.unshift(d);
+    currentId = d.id;
+    persistDrafts();
+    loadDraftIntoEditor();
+    renderDraftList();
+    elTitle.focus();
+  }
+  function deleteDraft(id, ev){
+    if(ev) ev.stopPropagation();
+    var idx=-1; for(var i=0;i<drafts.length;i++){ if(drafts[i].id===id){ idx=i; break; } }
+    if(idx<0) return;
+    var d=drafts[idx];
+    if(!confirm('Delete draft "'+(d.title||'Untitled')+'"? This cannot be undone.')) return;
+    drafts.splice(idx,1);
+    if(currentId===id){
+      if(drafts.length) currentId=drafts[0].id; else { newDraft(); return; }
+    }
+    persistDrafts();
+    loadDraftIntoEditor();
+    renderDraftList();
+  }
+  function persistDrafts(){ save(K_DRAFTS, drafts); save(K_CURRENT, currentId); }
+
+  function loadDraftIntoEditor(){
+    var d=currentDraft();
+    if(!d){ return; }
+    elTitle.value=d.title||''; elDate.value=d.date||todayISO();
+    elTags.value=d.tags||''; elBody.value=d.body||'';
+    elDraft.checked=!!d.hugoDraft; updateDraftLabel();
+    updatePreview(); updateFilename(); updateWordcount();
+  }
+
+  var saveCurrent = debounce(function(){
+    var d=currentDraft();
+    if(!d) return;
+    d.title=elTitle.value; d.date=elDate.value; d.tags=elTags.value; d.body=elBody.value;
+    d.hugoDraft=elDraft.checked;
+    d.updatedAt=Date.now();
+    persistDrafts();
+    renderDraftList();
+    elSaveState.textContent='saved '+relTime(d.updatedAt);
+  }, 450);
+
+  function updateDraftLabel(){ elDraftLabel.classList.toggle('on', elDraft.checked); }
+
+  function renderDraftList(){
+    if(!drafts.length){ elDraftList.innerHTML='<div class="emptydrafts">No drafts yet.<br>Click + New to start.</div>'; return; }
+    var html='';
+    for(var i=0;i<drafts.length;i++){
+      var d=drafts[i];
+      var title=(d.title||'').trim()||'Untitled';
+      html += '<div class="draft'+(d.id===currentId?' active':'')+'" data-id="'+d.id+'">'
+        + '<button class="del" data-del="'+d.id+'" title="Delete">×</button>'
+        + '<div class="dt">'+escapeHtml(title)+'</div>'
+        + '<div class="dm">'+(d.published?(d.publishedAsDraft?'<span class="badge amber">staged</span>':'<span class="badge">published</span>'):'')
+        + '<span>'+(d.date||'')+'</span><span>·</span><span>'+relTime(d.updatedAt)+'</span></div>'
+        + '</div>';
+    }
+    elDraftList.innerHTML=html;
+  }
+
+  // ---------- live UI updates ----------
+  function updateFilename(){
+    var date=elDate.value||todayISO();
+    var name=date+'-'+slugify(elTitle.value)+'.md';
+    elFilename.innerHTML = escapeHtml(settings.postsPath.replace(/\/$/,'')) + '/<b>'+escapeHtml(name)+'</b>';
+  }
+  function updatePreview(){
+    var body=elBody.value;
+    if(!body.trim()){ elPreview.innerHTML='<p class="preview-empty">Preview will appear here as you write.</p>'; return; }
+    elPreview.innerHTML=renderMarkdown(body);
+  }
+  function updateWordcount(){
+    var words=(elBody.value.trim().match(/\S+/g)||[]).length;
+    elWordcount.textContent = words+' word'+(words===1?'':'s');
+  }
+
+  // ---------- status ----------
+  function status(msg, kind, linkUrl, linkText){
+    elStatusbar.className='statusbar'+(kind?' '+kind:'');
+    elStatusMsg.innerHTML = escapeHtml(msg) + (linkUrl ? ' <a href="'+linkUrl+'" target="_blank" rel="noopener">'+(linkText||'view')+'</a>' : '');
+  }
+
+  // ================= GitHub publishing =================
+  function ghHeaders(){
+    return { 'Authorization':'Bearer '+token, 'Accept':'application/vnd.github+json',
+             'X-GitHub-Api-Version':'2022-11-28', 'Content-Type':'application/json' };
+  }
+  function apiUrl(path){
+    return 'https://api.github.com/repos/'+settings.owner+'/'+settings.repo+'/contents/'+path;
+  }
+
+  async function publish(){
+    if(!token){ openModal(); status('Add your GitHub token to publish.', 'err'); return; }
+    var title=elTitle.value.trim();
+    if(!title){ status('A title is required before publishing.', 'err'); elTitle.focus(); return; }
+    var date=elDate.value||todayISO();
+    var tags=parseTags(elTags.value);
+    var isDraft=elDraft.checked;
+    var filename=date+'-'+slugify(title)+'.md';
+    var path=settings.postsPath.replace(/\/$/,'')+'/'+filename;
+    var content=fullFileContent(title, date, tags, elBody.value, isDraft);
+
+    var btn=$('publishBtn');
+    btn.disabled=true;
+    status((isDraft?'Staging draft ':'Publishing ')+filename+' …', 'info');
+    try{
+      // does the file already exist? need its sha to update
+      var sha=null;
+      var getRes=await fetch(apiUrl(path)+'?ref='+encodeURIComponent(settings.branch), { headers:ghHeaders() });
+      if(getRes.status===200){ var j=await getRes.json(); sha=j.sha; }
+      else if(getRes.status===401){ throw new Error('GitHub rejected the token (401). Check it in Settings.'); }
+      else if(getRes.status!==404){
+        var ge=await getRes.json().catch(function(){ return {}; });
+        throw new Error('Could not reach repo ('+getRes.status+'): '+(ge.message||getRes.statusText));
+      }
+      var putRes=await fetch(apiUrl(path), {
+        method:'PUT', headers:ghHeaders(),
+        body:JSON.stringify(Object.assign({
+          message:(sha?'Update':'Add')+' post: '+title+(isDraft?' (draft)':''),
+          content:utf8ToBase64(content),
+          branch:settings.branch
+        }, sha?{sha:sha}:{}))
+      });
+      var res=await putRes.json();
+      if(!putRes.ok) throw new Error(res.message||('Publish failed ('+putRes.status+')'));
+
+      var d=currentDraft();
+      if(d){ d.published=true; d.publishedFile=filename; d.publishedAsDraft=isDraft; d.updatedAt=Date.now(); persistDrafts(); renderDraftList(); }
+      var commitUrl=res.commit&&res.commit.html_url;
+      if(isDraft) status('Staged '+filename+' as draft ✓ — committed but hidden from the live site (draft: true).', 'ok', commitUrl, 'view commit');
+      else status((sha?'Updated ':'Published ')+filename+' ✓  GitHub Actions is deploying (~1–2 min).', 'ok', commitUrl, 'view commit');
+    }catch(err){
+      status(err.message||String(err), 'err');
+    }finally{
+      btn.disabled=false;
+    }
+  }
+
+  async function testConnection(){
+    var tr=$('testResult');
+    var tk=$('tokenInput').value.trim();
+    var owner=$('ownerInput').value.trim(), repo=$('repoInput').value.trim(), branch=$('branchInput').value.trim();
+    if(!tk){ tr.className='testresult err'; tr.textContent='Enter a token first.'; return; }
+    tr.className='testresult'; tr.textContent='Testing…';
+    try{
+      var r=await fetch('https://api.github.com/repos/'+owner+'/'+repo, {
+        headers:{ 'Authorization':'Bearer '+tk, 'Accept':'application/vnd.github+json', 'X-GitHub-Api-Version':'2022-11-28' }
+      });
+      var j=await r.json();
+      if(!r.ok){ tr.className='testresult err'; tr.textContent='✗ '+(j.message||('HTTP '+r.status)); return; }
+      var canPush=j.permissions&&j.permissions.push;
+      // check branch exists
+      var br=await fetch('https://api.github.com/repos/'+owner+'/'+repo+'/branches/'+encodeURIComponent(branch), {
+        headers:{ 'Authorization':'Bearer '+tk, 'Accept':'application/vnd.github+json' }
+      });
+      var branchOk=br.ok;
+      if(!canPush){ tr.className='testresult err'; tr.textContent='✓ Repo found, but this token cannot write. Use a token with repo (or Contents: write) access.'; return; }
+      if(!branchOk){ tr.className='testresult err'; tr.textContent='✓ Token can write, but branch "'+branch+'" was not found in '+j.full_name+'.'; return; }
+      tr.className='testresult ok'; tr.textContent='✓ Connected to '+j.full_name+' · write access · branch "'+branch+'" OK.';
+    }catch(e){
+      tr.className='testresult err'; tr.textContent='✗ Network error: '+e.message;
+    }
+  }
+
+  // ================= settings modal =================
+  function openModal(){
+    $('modalTitle').textContent = token ? 'Settings' : 'Welcome — connect GitHub';
+    $('tokenHelp').style.display = token ? 'none' : 'block';
+    $('tokenInput').value=token;
+    $('ownerInput').value=settings.owner;
+    $('repoInput').value=settings.repo;
+    $('branchInput').value=settings.branch;
+    $('pathInput').value=settings.postsPath;
+    $('branchHint').innerHTML='Deploys run from the branch your GitHub Actions workflow watches. For this repo that is <code>main</code>.';
+    $('testResult').textContent='';
+    $('overlay').classList.add('show');
+    setTimeout(function(){ (token?$('tokenInput'):$('tokenInput')).focus(); }, 50);
+  }
+  function closeModal(){ $('overlay').classList.remove('show'); }
+  function saveSettings(){
+    token=$('tokenInput').value.trim();
+    settings.owner=$('ownerInput').value.trim()||DEFAULT_SETTINGS.owner;
+    settings.repo=$('repoInput').value.trim()||DEFAULT_SETTINGS.repo;
+    settings.branch=$('branchInput').value.trim()||DEFAULT_SETTINGS.branch;
+    settings.postsPath=$('pathInput').value.trim()||DEFAULT_SETTINGS.postsPath;
+    save(K_TOKEN, token);
+    save(K_SETTINGS, settings);
+    updateFilename();
+    closeModal();
+    status(token?'Settings saved.':'Settings saved (no token yet — add one to publish).', token?'ok':'info');
+  }
+
+  // ================= editor toolbar / shortcuts =================
+  function applyFormat(kind){
+    var ta=elBody, s=ta.selectionStart, e=ta.selectionEnd, val=ta.value, sel=val.slice(s,e);
+    function wrap(before, after, ph){
+      var text=sel||ph||'';
+      ta.setRangeText(before+text+after, s, e, 'end');
+      if(!sel && ph){ ta.setSelectionRange(s+before.length, s+before.length+ph.length); }
+      ta.focus(); ta.dispatchEvent(new Event('input'));
+    }
+    function linePrefix(prefix){
+      var ls=val.lastIndexOf('\n', s-1)+1;
+      ta.setRangeText(prefix, ls, ls, 'end');
+      ta.focus(); ta.dispatchEvent(new Event('input'));
+    }
+    switch(kind){
+      case 'b': wrap('**','**','bold text'); break;
+      case 'i': wrap('*','*','italic text'); break;
+      case 'code': wrap('`','`','code'); break;
+      case 'link': wrap('[', '](https://)', sel?'':'link text'); break;
+      case 'h': linePrefix('## '); break;
+      case 'quote': linePrefix('> '); break;
+      case 'ul': linePrefix('- '); break;
+      case 'ol': linePrefix('1. '); break;
+      case 'fence': wrap('\n```\n','\n```\n','code'); break;
+    }
+  }
+
+  // ================= theme & scroll sync =================
+  function applyTheme(t){
+    theme = (t==='dark') ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', theme);
+    save(K_THEME, theme);
+    elThemeBtn.textContent = (theme==='dark') ? '☀' : '☾';
+    elThemeBtn.title = (theme==='dark') ? 'Switch to light' : 'Switch to dark';
+  }
+  function toggleTheme(){ applyTheme(theme==='dark'?'light':'dark'); }
+
+  var syncing=false;
+  function syncScrollFrom(src, dst){
+    if(syncing) return;
+    syncing=true;
+    var sMax=src.scrollHeight-src.clientHeight, dMax=dst.scrollHeight-dst.clientHeight;
+    dst.scrollTop = (sMax>0 ? src.scrollTop/sMax : 0) * dMax;
+    requestAnimationFrame(function(){ syncing=false; });
+  }
+  function applySyncBtn(){ elSyncBtn.classList.toggle('on', !!ui.scrollSync); }
+
+  // ================= wiring =================
+  $('toggleSidebar').addEventListener('click', function(){
+    ui.sidebar=!ui.sidebar; save(K_UI, ui);
+    elSidebar.classList.toggle('collapsed', !ui.sidebar);
+  });
+  elThemeBtn.addEventListener('click', toggleTheme);
+  elSyncBtn.addEventListener('click', function(){ ui.scrollSync=!ui.scrollSync; save(K_UI, ui); applySyncBtn(); });
+  $('settingsBtn').addEventListener('click', openModal);
+  $('publishBtn').addEventListener('click', publish);
+  $('newBtn').addEventListener('click', newDraft);
+  $('cancelBtn').addEventListener('click', closeModal);
+  $('saveSettingsBtn').addEventListener('click', saveSettings);
+  $('testBtn').addEventListener('click', testConnection);
+  $('overlay').addEventListener('click', function(e){ if(e.target===this) closeModal(); });
+
+  $('toolbar').addEventListener('click', function(e){
+    var b=e.target.closest('button'); if(b && b.dataset.md) applyFormat(b.dataset.md);
+  });
+
+  elDraftList.addEventListener('click', function(e){
+    var del=e.target.closest('[data-del]');
+    if(del){ deleteDraft(del.dataset.del, e); return; }
+    var card=e.target.closest('.draft');
+    if(card){ currentId=card.dataset.id; save(K_CURRENT, currentId); loadDraftIntoEditor(); renderDraftList(); }
+  });
+
+  function onInput(){ updateFilename(); saveCurrent(); }
+  elTitle.addEventListener('input', onInput);
+  elDate.addEventListener('input', onInput);
+  elTags.addEventListener('input', function(){ saveCurrent(); });
+  elDraft.addEventListener('change', function(){ updateDraftLabel(); saveCurrent(); });
+  elBody.addEventListener('input', function(){ updatePreview(); updateWordcount(); saveCurrent(); });
+  elBody.addEventListener('scroll', function(){ if(ui.scrollSync) syncScrollFrom(elBody, elPreviewPane); });
+  elPreviewPane.addEventListener('scroll', function(){ if(ui.scrollSync) syncScrollFrom(elPreviewPane, elBody); });
+
+  elBody.addEventListener('keydown', function(e){
+    var mod=e.ctrlKey||e.metaKey;
+    if(e.key==='Tab'){ e.preventDefault(); elBody.setRangeText('  ', elBody.selectionStart, elBody.selectionEnd, 'end'); }
+    else if(mod && e.key.toLowerCase()==='b'){ e.preventDefault(); applyFormat('b'); }
+    else if(mod && e.key.toLowerCase()==='i'){ e.preventDefault(); applyFormat('i'); }
+    else if(mod && e.key.toLowerCase()==='k'){ e.preventDefault(); applyFormat('link'); }
+  });
+  document.addEventListener('keydown', function(e){
+    var mod=e.ctrlKey||e.metaKey;
+    if(mod && e.key==='Enter'){ e.preventDefault(); publish(); }
+    else if(mod && e.key.toLowerCase()==='s'){ e.preventDefault(); saveCurrent(); status('Draft saved locally.', 'ok'); }
+    else if(e.key==='Escape'){ closeModal(); }
+  });
+
+  // ================= boot =================
+  applyTheme(theme);
+  applySyncBtn();
+  elSidebar.classList.toggle('collapsed', !ui.sidebar);
+  if(!drafts.length){ newDraft(); }
+  else{
+    if(!currentDraft()) currentId=drafts[0].id;
+    loadDraftIntoEditor();
+  }
+  renderDraftList();
+  updateFilename();
+
+  if(!token){ openModal(); }
+  else{ status('Ready. Publishing to '+settings.owner+'/'+settings.repo+' on "'+settings.branch+'".'); }
+})();
+</script>
+</body>
+</html>
