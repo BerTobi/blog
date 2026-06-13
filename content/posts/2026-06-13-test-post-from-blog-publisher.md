@@ -23,3 +23,5 @@ Inline `code`, a [link](https://gohugo.io/), and a short ordered list:
 1. Write
 2. Preview
 3. Publish
+
+Testing live editing.
