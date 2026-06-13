@@ -66,6 +66,10 @@
     transition:margin-left .2s;
   }
   aside.collapsed{margin-left:-250px}
+  .aside-tabs{display:flex; border-bottom:1px solid var(--line)}
+  .aside-tabs .tab{flex:1; background:none; border:none; border-bottom:2px solid transparent; padding:11px 8px; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:var(--muted)}
+  .aside-tabs .tab:hover{color:var(--ink)}
+  .aside-tabs .tab.on{color:var(--accent); border-bottom-color:var(--accent)}
   .aside-head{display:flex; align-items:center; gap:8px; padding:12px; border-bottom:1px solid var(--line)}
   .aside-head .title{font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); flex:1}
   .newbtn{border:1px dashed var(--line); background:none; color:var(--accent); border-radius:7px; padding:5px 10px; font-size:12px; font-weight:600}
@@ -185,11 +189,17 @@
 
 <main>
   <aside id="sidebar">
+    <div class="aside-tabs">
+      <button class="tab on" id="tabDrafts" data-tab="drafts">Drafts</button>
+      <button class="tab" id="tabPosts" data-tab="posts">Posts</button>
+    </div>
     <div class="aside-head">
-      <span class="title">Drafts</span>
+      <span class="title" id="asideHint">Local, unpublished</span>
       <button class="newbtn" id="newBtn">+ New</button>
+      <button class="newbtn" id="refreshPostsBtn" style="display:none">↻ Refresh</button>
     </div>
     <div class="draftlist" id="draftList"></div>
+    <div class="draftlist" id="postList" style="display:none"></div>
   </aside>
 
   <div class="editor-area">
@@ -343,6 +353,38 @@
     }
     return btoa(bin);
   }
+  function base64ToUtf8(b64){
+    var bin=atob((b64||'').replace(/\s/g,'')), bytes=new Uint8Array(bin.length);
+    for(var i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+    return new TextDecoder().decode(bytes);
+  }
+  function fmUnquote(s){
+    s=(s||'').trim();
+    var q=s.match(/^"([\s\S]*)"$/) || s.match(/^'([\s\S]*)'$/);
+    return q ? q[1].replace(/\\"/g,'"').replace(/\\\\/g,'\\') : s;
+  }
+  function fmTags(fm){
+    var inline=fm.match(/^[ \t]*tags[ \t]*[:=][ \t]*\[([\s\S]*?)\]/mi);
+    if(inline) return inline[1].split(',').map(function(s){ return fmUnquote(s); }).filter(Boolean).join(', ');
+    var block=fm.match(/^[ \t]*tags[ \t]*:[ \t]*\n((?:[ \t]*-[ \t]*.*(?:\n|$))+)/mi);
+    if(block) return block[1].split('\n').map(function(l){ var m=l.match(/^[ \t]*-[ \t]*(.*)$/); return m?fmUnquote(m[1]):''; }).filter(Boolean).join(', ');
+    return '';
+  }
+  // Parse a post file back into editor fields (handles YAML --- and TOML +++ blocks).
+  function parseFrontMatter(text){
+    text=(text||'').replace(/^﻿/,'').replace(/\r\n?/g,'\n');
+    var m=text.match(/^(---|\+\+\+)\n([\s\S]*?)\n(---|\+\+\+)\n?/);
+    if(!m) return { title:'', date:'', tags:'', draft:false, body:text };
+    var fm=m[2], body=text.slice(m[0].length);
+    function val(key){ var r=new RegExp('^[ \\t]*'+key+'[ \\t]*[:=][ \\t]*(.*)$','mi'); var mm=fm.match(r); return mm?mm[1].trim():''; }
+    var date=fmUnquote(val('date'));
+    date=(date.match(/\d{4}-\d{2}-\d{2}/)||[''])[0];
+    return { title:fmUnquote(val('title')), date:date, tags:fmTags(fm), draft:/^true$/i.test(val('draft')), body:body.replace(/^\n+/,'') };
+  }
+  function deriveTitle(filename){
+    return filename.replace(/\.md$/i,'').replace(/^\d{4}-\d{2}-\d{2}-/,'').replace(/[-_]+/g,' ')
+      .replace(/\b\w/g, function(c){ return c.toUpperCase(); }) || filename;
+  }
   function buildFrontMatter(title, date, tags, draft){
     var t = title.replace(/\\/g,'\\\\').replace(/"/g,'\\"');
     var tagStr = tags.length ? '['+tags.map(function(x){ return '"'+x.replace(/"/g,'\\"')+'"'; }).join(', ')+']' : '[]';
@@ -478,14 +520,20 @@
   var ui = load(K_UI, {});
   if(ui.sidebar===undefined) ui.sidebar=true;
   if(ui.scrollSync===undefined) ui.scrollSync=true;
+  if(ui.tab!=='posts') ui.tab='drafts';
   var theme = load(K_THEME, null) || document.documentElement.getAttribute('data-theme') || 'light';
+  var remotePosts = [];        // [{name, path, sha, title, draft, enriched}]
+  var postCache = {};          // path -> {sha, text}
+  var postsLoaded = false;
 
   // element refs
   var elTitle=$('title'), elDate=$('date'), elTags=$('tags'), elBody=$('body'), elDraft=$('draftToggle'),
       elDraftLabel=$('draftLabel'), elPreview=$('preview'), elPreviewPane=$('preview').parentElement,
       elFilename=$('filenamePreview'), elWordcount=$('wordcount'),
-      elDraftList=$('draftList'), elStatusbar=$('statusbar'), elStatusMsg=$('statusmsg'),
-      elSaveState=$('savestate'), elSidebar=$('sidebar'), elThemeBtn=$('themeBtn'), elSyncBtn=$('syncBtn');
+      elDraftList=$('draftList'), elPostList=$('postList'), elStatusbar=$('statusbar'), elStatusMsg=$('statusmsg'),
+      elSaveState=$('savestate'), elSidebar=$('sidebar'), elThemeBtn=$('themeBtn'), elSyncBtn=$('syncBtn'),
+      elTabDrafts=$('tabDrafts'), elTabPosts=$('tabPosts'), elNewBtn=$('newBtn'),
+      elRefreshBtn=$('refreshPostsBtn'), elAsideHint=$('asideHint');
 
   // ---------- drafts ----------
   function currentDraft(){
@@ -493,7 +541,7 @@
     return null;
   }
   function newDraft(){
-    var d = { id:uid(), title:'', date:todayISO(), tags:'', body:'', hugoDraft:false, updatedAt:Date.now(), published:false, publishedFile:'', publishedAsDraft:false };
+    var d = newBlankDraftObject();
     drafts.unshift(d);
     currentId = d.id;
     persistDrafts();
@@ -557,6 +605,12 @@
 
   // ---------- live UI updates ----------
   function updateFilename(){
+    var d=currentDraft();
+    if(d && d.repoPath){
+      var dir=d.repoPath.replace(/\/[^/]*$/,''), base=d.repoPath.split('/').pop();
+      elFilename.innerHTML = escapeHtml(dir)+'/<b>'+escapeHtml(base)+'</b> <span style="opacity:.7">· editing (filename fixed)</span>';
+      return;
+    }
     var date=elDate.value||todayISO();
     var name=date+'-'+slugify(elTitle.value)+'.md';
     elFilename.innerHTML = escapeHtml(settings.postsPath.replace(/\/$/,'')) + '/<b>'+escapeHtml(name)+'</b>';
@@ -569,6 +623,98 @@
   function updateWordcount(){
     var words=(elBody.value.trim().match(/\S+/g)||[]).length;
     elWordcount.textContent = words+' word'+(words===1?'':'s');
+  }
+
+  // ---------- remote post management ----------
+  function switchTab(tab){
+    ui.tab = (tab==='posts') ? 'posts' : 'drafts';
+    save(K_UI, ui);
+    var posts = ui.tab==='posts';
+    elTabDrafts.classList.toggle('on', !posts);
+    elTabPosts.classList.toggle('on', posts);
+    elDraftList.style.display = posts?'none':'';
+    elPostList.style.display = posts?'':'none';
+    elNewBtn.style.display = posts?'none':'';
+    elRefreshBtn.style.display = posts?'':'none';
+    elAsideHint.textContent = posts ? ('Published in '+settings.owner+'/'+settings.repo) : 'Local, unpublished';
+    if(posts && !postsLoaded){ loadPosts(); }
+  }
+
+  function renderPostList(stateMsg){
+    if(stateMsg){ elPostList.innerHTML='<div class="emptydrafts">'+escapeHtml(stateMsg)+'</div>'; return; }
+    if(!remotePosts.length){ elPostList.innerHTML='<div class="emptydrafts">No posts found in '+escapeHtml(settings.postsPath)+'.</div>'; return; }
+    var html='';
+    for(var i=0;i<remotePosts.length;i++){
+      var p=remotePosts[i];
+      html += '<div class="draft" data-post="'+encodeURIComponent(p.path)+'">'
+        + '<button class="del" data-delpost="'+encodeURIComponent(p.path)+'" title="Delete from repo">×</button>'
+        + '<div class="dt">'+escapeHtml(p.title||deriveTitle(p.name))+'</div>'
+        + '<div class="dm">'+(p.enriched&&p.draft?'<span class="badge amber">draft</span>':'')
+        + '<span>'+escapeHtml(p.name)+'</span></div>'
+        + '</div>';
+    }
+    elPostList.innerHTML=html;
+  }
+
+  async function loadPosts(){
+    if(!token){ postsLoaded=false; renderPostList('Add a GitHub token in Settings to list posts.'); return; }
+    postsLoaded=true;
+    renderPostList('Loading posts…');
+    try{
+      var files=await ghListPosts();
+      remotePosts=files.map(function(f){ return { name:f.name, path:f.path, sha:f.sha, title:'', draft:false, enriched:false }; });
+      renderPostList();
+      // enrich each with real title + draft flag (best-effort)
+      remotePosts.forEach(function(p){
+        ghGetFile(p.path).then(function(r){
+          postCache[p.path]={ sha:r.sha, text:r.text };
+          var fm=parseFrontMatter(r.text);
+          p.title=fm.title; p.draft=fm.draft; p.enriched=true;
+          if(ui.tab==='posts') renderPostList();
+        }).catch(function(){});
+      });
+    }catch(e){
+      postsLoaded=false;
+      renderPostList(e.message||String(e));
+    }
+  }
+
+  async function openRemotePost(path){
+    var base=path.split('/').pop();
+    status('Opening '+base+' …', 'info');
+    try{
+      var r=postCache[path] || await ghGetFile(path);
+      postCache[path]=r;
+      var fm=parseFrontMatter(r.text);
+      var d=null;
+      for(var i=0;i<drafts.length;i++){ if(drafts[i].repoPath===path){ d=drafts[i]; break; } }
+      if(!d){ d=newBlankDraftObject(); d.repoPath=path; drafts.unshift(d); }
+      d.title=fm.title; d.date=fm.date||todayISO(); d.tags=fm.tags; d.body=fm.body;
+      d.hugoDraft=fm.draft; d.repoSha=r.sha; d.published=true; d.publishedAsDraft=fm.draft; d.updatedAt=Date.now();
+      currentId=d.id; persistDrafts();
+      switchTab('drafts'); loadDraftIntoEditor(); renderDraftList();
+      status('Editing '+base+' — hit Publish to commit your changes back to the repo.', 'info');
+    }catch(e){ status(e.message||String(e), 'err'); }
+  }
+
+  async function deletePost(path){
+    var base=path.split('/').pop();
+    if(!confirm('Delete "'+base+'" from the repo?\n\nThis commits a deletion to "'+settings.branch+'" and the post will drop off your live site on the next deploy.')) return;
+    status('Deleting '+base+' …', 'info');
+    try{
+      var sha=(postCache[path]&&postCache[path].sha);
+      if(!sha){ sha=(await ghGetFile(path)).sha; }
+      await ghDeleteFile(path, sha);
+      delete postCache[path];
+      drafts.forEach(function(d){ if(d.repoPath===path){ d.repoPath=null; d.repoSha=null; d.published=false; } });
+      persistDrafts(); renderDraftList();
+      status('Deleted '+base+' ✓ — it will disappear from the live site after the deploy.', 'ok');
+      loadPosts();
+    }catch(e){ status(e.message||String(e), 'err'); }
+  }
+
+  function newBlankDraftObject(){
+    return { id:uid(), title:'', date:todayISO(), tags:'', body:'', hugoDraft:false, updatedAt:Date.now(), published:false, publishedFile:'', publishedAsDraft:false, repoPath:null, repoSha:null };
   }
 
   // ---------- status ----------
@@ -585,6 +731,29 @@
   function apiUrl(path){
     return 'https://api.github.com/repos/'+settings.owner+'/'+settings.repo+'/contents/'+path;
   }
+  async function ghJson(res){ var j=await res.json().catch(function(){ return {}; }); return j; }
+  async function ghListPosts(){
+    var dir=settings.postsPath.replace(/\/$/,'');
+    var r=await fetch(apiUrl(dir)+'?ref='+encodeURIComponent(settings.branch), { headers:ghHeaders() });
+    if(r.status===401) throw new Error('GitHub rejected the token (401). Check it in Settings.');
+    if(!r.ok){ var e=await ghJson(r); throw new Error('Could not list posts ('+r.status+'): '+(e.message||r.statusText)); }
+    var arr=await r.json();
+    if(!Array.isArray(arr)) throw new Error('"'+dir+'" is not a folder in this repo.');
+    return arr.filter(function(f){ return f.type==='file' && /\.md$/i.test(f.name); })
+              .sort(function(a,b){ return a.name<b.name?1:-1; });
+  }
+  async function ghGetFile(path){
+    var r=await fetch(apiUrl(path)+'?ref='+encodeURIComponent(settings.branch), { headers:ghHeaders() });
+    if(!r.ok){ var e=await ghJson(r); throw new Error('Could not open file ('+r.status+'): '+(e.message||r.statusText)); }
+    var j=await r.json();
+    return { sha:j.sha, text:base64ToUtf8(j.content) };
+  }
+  async function ghDeleteFile(path, sha){
+    var r=await fetch(apiUrl(path), { method:'DELETE', headers:ghHeaders(),
+      body:JSON.stringify({ message:'Delete post: '+path.split('/').pop(), sha:sha, branch:settings.branch }) });
+    if(!r.ok){ var e=await ghJson(r); throw new Error('Delete failed ('+r.status+'): '+(e.message||r.statusText)); }
+    return true;
+  }
 
   async function publish(){
     if(!token){ openModal(); status('Add your GitHub token to publish.', 'err'); return; }
@@ -593,13 +762,15 @@
     var date=elDate.value||todayISO();
     var tags=parseTags(elTags.value);
     var isDraft=elDraft.checked;
-    var filename=date+'-'+slugify(title)+'.md';
-    var path=settings.postsPath.replace(/\/$/,'')+'/'+filename;
+    var d=currentDraft();
+    // editing an existing post → keep its path (preserves the URL); otherwise derive from title+date
+    var path = (d && d.repoPath) ? d.repoPath : settings.postsPath.replace(/\/$/,'')+'/'+date+'-'+slugify(title)+'.md';
+    var base = path.split('/').pop();
     var content=fullFileContent(title, date, tags, elBody.value, isDraft);
 
     var btn=$('publishBtn');
     btn.disabled=true;
-    status((isDraft?'Staging draft ':'Publishing ')+filename+' …', 'info');
+    status((isDraft?'Staging draft ':'Publishing ')+base+' …', 'info');
     try{
       // does the file already exist? need its sha to update
       var sha=null;
@@ -621,11 +792,14 @@
       var res=await putRes.json();
       if(!putRes.ok) throw new Error(res.message||('Publish failed ('+putRes.status+')'));
 
-      var d=currentDraft();
-      if(d){ d.published=true; d.publishedFile=filename; d.publishedAsDraft=isDraft; d.updatedAt=Date.now(); persistDrafts(); renderDraftList(); }
+      var resSha=res.content&&res.content.sha;
+      if(d){ d.published=true; d.publishedFile=base; d.publishedAsDraft=isDraft; d.repoPath=path; d.repoSha=resSha; d.updatedAt=Date.now(); persistDrafts(); renderDraftList(); }
+      updateFilename();
+      postCache[path]={ sha:resSha, text:content };
+      postsLoaded=false; // refresh the Posts list next time it opens
       var commitUrl=res.commit&&res.commit.html_url;
-      if(isDraft) status('Staged '+filename+' as draft ✓ — committed but hidden from the live site (draft: true).', 'ok', commitUrl, 'view commit');
-      else status((sha?'Updated ':'Published ')+filename+' ✓  GitHub Actions is deploying (~1–2 min).', 'ok', commitUrl, 'view commit');
+      if(isDraft) status('Staged '+base+' as draft ✓ — committed but hidden from the live site (draft: true).', 'ok', commitUrl, 'view commit');
+      else status((sha?'Updated ':'Published ')+base+' ✓  GitHub Actions is deploying (~1–2 min).', 'ok', commitUrl, 'view commit');
     }catch(err){
       status(err.message||String(err), 'err');
     }finally{
@@ -748,6 +922,9 @@
   $('saveSettingsBtn').addEventListener('click', saveSettings);
   $('testBtn').addEventListener('click', testConnection);
   $('overlay').addEventListener('click', function(e){ if(e.target===this) closeModal(); });
+  elTabDrafts.addEventListener('click', function(){ switchTab('drafts'); });
+  elTabPosts.addEventListener('click', function(){ switchTab('posts'); });
+  elRefreshBtn.addEventListener('click', function(){ postsLoaded=false; loadPosts(); });
 
   $('toolbar').addEventListener('click', function(e){
     var b=e.target.closest('button'); if(b && b.dataset.md) applyFormat(b.dataset.md);
@@ -758,6 +935,13 @@
     if(del){ deleteDraft(del.dataset.del, e); return; }
     var card=e.target.closest('.draft');
     if(card){ currentId=card.dataset.id; save(K_CURRENT, currentId); loadDraftIntoEditor(); renderDraftList(); }
+  });
+
+  elPostList.addEventListener('click', function(e){
+    var del=e.target.closest('[data-delpost]');
+    if(del){ e.stopPropagation(); deletePost(decodeURIComponent(del.dataset.delpost)); return; }
+    var card=e.target.closest('[data-post]');
+    if(card){ openRemotePost(decodeURIComponent(card.dataset.post)); }
   });
 
   function onInput(){ updateFilename(); saveCurrent(); }
@@ -794,6 +978,7 @@
   }
   renderDraftList();
   updateFilename();
+  switchTab(ui.tab);
 
   if(!token){ openModal(); }
   else{ status('Ready. Publishing to '+settings.owner+'/'+settings.repo+' on "'+settings.branch+'".'); }
