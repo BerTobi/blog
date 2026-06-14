@@ -173,6 +173,12 @@
   .callout ol{margin:6px 0 0; padding-left:20px}
   .callout li{margin:4px 0}
   .callout code{font-family:var(--mono); font-size:.9em; background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:1px 5px}
+  .imgtabs{display:flex; gap:4px; margin:4px 0 10px}
+  .imgtabs .tab{flex:1; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px; font-size:13px; font-weight:600; color:var(--muted)}
+  .imgtabs .tab.on{color:var(--accent); border-color:var(--accent)}
+  .imgpreview{display:flex; align-items:center; gap:10px; margin-top:10px; font-size:12px; color:var(--muted)}
+  .imgpreview img{max-width:120px; max-height:90px; border-radius:8px; border:1px solid var(--line)}
+  #body.dragover{outline:2px dashed var(--accent); outline-offset:-6px}
 </style>
 </head>
 <body>
@@ -229,6 +235,7 @@
       <button data-md="code" title="Inline code">&lt;/&gt;</button>
       <span class="sep"></span>
       <button data-md="link" title="Link (Ctrl/Cmd+K)">🔗</button>
+      <button data-md="image" title="Insert image (or paste / drop one in the editor)">🖼</button>
       <button data-md="quote" title="Quote">❝</button>
       <button data-md="ul" title="List">•</button>
       <button data-md="ol" title="Numbered list">1.</button>
@@ -291,6 +298,12 @@
         <input id="pathInput" type="text" autocomplete="off">
       </div>
     </div>
+    <div class="row">
+      <div class="col">
+        <label for="imageDirInput">Images folder</label>
+        <input id="imageDirInput" type="text" autocomplete="off" placeholder="static/images">
+      </div>
+    </div>
     <p class="hint" id="branchHint"></p>
 
     <div class="testresult" id="testResult"></div>
@@ -304,13 +317,48 @@
   </div>
 </div>
 
+<!-- Insert image modal -->
+<div class="overlay" id="imgOverlay">
+  <div class="modal">
+    <h2>Insert image</h2>
+    <p class="sub">Upload a file to your repo, or reference one by URL. The image is committed to <code id="imgDirLabel">static/images</code> and inserted at your cursor.</p>
+
+    <div class="imgtabs">
+      <button class="tab on" id="imgTabUpload" data-imgtab="upload">Upload</button>
+      <button class="tab" id="imgTabUrl" data-imgtab="url">By URL</button>
+    </div>
+
+    <div id="imgPaneUpload">
+      <label for="imgFile">Image file</label>
+      <input id="imgFile" type="file" accept="image/*">
+      <div class="imgpreview" id="imgPreview" style="display:none"><img id="imgPreviewImg" alt=""><span id="imgPreviewInfo"></span></div>
+    </div>
+
+    <div id="imgPaneUrl" style="display:none">
+      <label for="imgUrl">Image URL</label>
+      <input id="imgUrl" type="text" placeholder="https://…/photo.jpg" autocomplete="off">
+    </div>
+
+    <label for="imgAlt">Alt text (description)</label>
+    <input id="imgAlt" type="text" placeholder="A short description of the image" autocomplete="off">
+
+    <div class="testresult" id="imgResult"></div>
+
+    <div class="actions">
+      <div class="spacer"></div>
+      <button class="iconbtn" id="imgCancelBtn">Cancel</button>
+      <button class="btn-primary" id="imgInsertBtn">Insert</button>
+    </div>
+  </div>
+</div>
+
 <script>
 "use strict";
 (function(){
   // ---------- storage keys ----------
   var K_TOKEN='bp_token', K_SETTINGS='bp_settings', K_DRAFTS='bp_drafts', K_CURRENT='bp_current', K_UI='bp_ui', K_THEME='bp_theme';
 
-  var DEFAULT_SETTINGS = { owner:'BerTobi', repo:'blog', branch:'master', postsPath:'content/posts' };
+  var DEFAULT_SETTINGS = { owner:'BerTobi', repo:'blog', branch:'master', postsPath:'content/posts', imageDir:'static/images' };
 
   // ---------- tiny helpers ----------
   var $ = function(id){ return document.getElementById(id); };
@@ -755,6 +803,62 @@
     return true;
   }
 
+  // ---------- images ----------
+  var sitePrefix=null; // path part of baseURL, e.g. "/blog" (cached)
+  async function ensureSitePrefix(){
+    if(sitePrefix!==null) return sitePrefix;
+    sitePrefix='';
+    try{
+      var r=await fetch(apiUrl('hugo.toml')+'?ref='+encodeURIComponent(settings.branch), { headers:ghHeaders() });
+      if(r.ok){
+        var t=base64ToUtf8((await r.json()).content);
+        var m=t.match(/baseURL\s*=\s*['"]([^'"]+)['"]/i);
+        if(m){ try{ sitePrefix=new URL(m[1]).pathname.replace(/\/+$/,''); }catch(e){} }
+      }
+    }catch(e){}
+    return sitePrefix;
+  }
+  function imageFilename(name){
+    var dot=name.lastIndexOf('.'), ext=dot>=0?name.slice(dot+1).toLowerCase().replace(/[^a-z0-9]/g,''):'png';
+    var base=slugify(dot>=0?name.slice(0,dot):name);
+    return base+'.'+(ext||'png');
+  }
+  function imagePublicUrl(repoPath){
+    // static/images/x.png  ->  <sitePrefix>/images/x.png  (Hugo serves static/ at the site root)
+    var served=repoPath.replace(/^\/?static\/?/i,'').replace(/^\/+/,'');
+    return (sitePrefix||'')+'/'+served;
+  }
+  function fileToBase64(file){
+    return new Promise(function(resolve, reject){
+      var fr=new FileReader();
+      fr.onload=function(){ var s=String(fr.result); resolve(s.slice(s.indexOf(',')+1)); };
+      fr.onerror=function(){ reject(new Error('Could not read the file.')); };
+      fr.readAsDataURL(file);
+    });
+  }
+  // Commit an image File/Blob to the repo and return its public URL.
+  async function uploadImage(file, onStatus){
+    if(!token) throw new Error('Add a GitHub token in Settings to upload images.');
+    await ensureSitePrefix();
+    var dir=(settings.imageDir||'static/images').replace(/^\/+|\/+$/g,'');
+    var name=imageFilename(file.name||'image.png');
+    var path=dir+'/'+name;
+    // avoid clobbering an existing file with a different image
+    var head=await fetch(apiUrl(path)+'?ref='+encodeURIComponent(settings.branch), { headers:ghHeaders() });
+    if(head.status===200){
+      var dot=name.lastIndexOf('.');
+      name=name.slice(0,dot)+'-'+Math.random().toString(36).slice(2,6)+name.slice(dot);
+      path=dir+'/'+name;
+    } else if(head.status===401){ throw new Error('GitHub rejected the token (401). Check it in Settings.'); }
+    if(onStatus) onStatus('Uploading '+name+' …');
+    var b64=await fileToBase64(file);
+    var put=await fetch(apiUrl(path), { method:'PUT', headers:ghHeaders(),
+      body:JSON.stringify({ message:'Add image: '+name, content:b64, branch:settings.branch }) });
+    var res=await put.json();
+    if(!put.ok) throw new Error(res.message||('Image upload failed ('+put.status+')'));
+    return { url:imagePublicUrl(path), name:name, commitUrl:res.commit&&res.commit.html_url };
+  }
+
   async function publish(){
     if(!token){ openModal(); status('Add your GitHub token to publish.', 'err'); return; }
     var title=elTitle.value.trim();
@@ -842,6 +946,7 @@
     $('repoInput').value=settings.repo;
     $('branchInput').value=settings.branch;
     $('pathInput').value=settings.postsPath;
+    $('imageDirInput').value=settings.imageDir;
     $('branchHint').innerHTML='Deploys run from the branch your GitHub Actions workflow watches. For this repo that is <code>master</code>.';
     $('testResult').textContent='';
     $('overlay').classList.add('show');
@@ -854,6 +959,8 @@
     settings.repo=$('repoInput').value.trim()||DEFAULT_SETTINGS.repo;
     settings.branch=$('branchInput').value.trim()||DEFAULT_SETTINGS.branch;
     settings.postsPath=$('pathInput').value.trim()||DEFAULT_SETTINGS.postsPath;
+    settings.imageDir=($('imageDirInput').value.trim()||DEFAULT_SETTINGS.imageDir).replace(/^\/+|\/+$/g,'');
+    sitePrefix=null; // re-detect from hugo.toml (repo/branch may have changed)
     save(K_TOKEN, token);
     save(K_SETTINGS, settings);
     updateFilename();
@@ -885,7 +992,68 @@
       case 'ul': linePrefix('- '); break;
       case 'ol': linePrefix('1. '); break;
       case 'fence': wrap('\n```\n','\n```\n','code'); break;
+      case 'image': openImgModal(); break;
     }
+  }
+  function insertAtCursor(text){
+    elBody.setRangeText(text, elBody.selectionStart, elBody.selectionEnd, 'end');
+    elBody.focus(); elBody.dispatchEvent(new Event('input'));
+  }
+
+  // ================= image insertion =================
+  var imgMode='upload', imgFileSel=null;
+  function openImgModal(){
+    imgFileSel=null;
+    $('imgDirLabel').textContent = settings.imageDir||'static/images';
+    setImgTab('upload');
+    $('imgFile').value=''; $('imgUrl').value=''; $('imgAlt').value='';
+    $('imgPreview').style.display='none';
+    var res=$('imgResult'); res.textContent=''; res.className='testresult';
+    $('imgOverlay').classList.add('show');
+    ensureSitePrefix();
+  }
+  function closeImgModal(){ $('imgOverlay').classList.remove('show'); }
+  function setImgTab(mode){
+    imgMode=mode;
+    $('imgTabUpload').classList.toggle('on', mode==='upload');
+    $('imgTabUrl').classList.toggle('on', mode==='url');
+    $('imgPaneUpload').style.display = mode==='upload'?'':'none';
+    $('imgPaneUrl').style.display = mode==='url'?'':'none';
+  }
+  function onImgFile(){
+    var f=$('imgFile').files[0]; imgFileSel=f||null;
+    if(!f){ $('imgPreview').style.display='none'; return; }
+    $('imgPreviewImg').src=URL.createObjectURL(f);
+    $('imgPreviewInfo').textContent=f.name+' · '+Math.round(f.size/1024)+' KB';
+    $('imgPreview').style.display='flex';
+  }
+  async function imgInsert(){
+    var alt=$('imgAlt').value.trim(), res=$('imgResult');
+    res.className='testresult';
+    if(imgMode==='url'){
+      var u=$('imgUrl').value.trim();
+      if(!u){ res.className='testresult err'; res.textContent='Enter an image URL.'; return; }
+      insertAtCursor('!['+alt+']('+u+')\n');
+      closeImgModal(); status('Inserted image reference.', 'ok'); return;
+    }
+    if(!imgFileSel){ res.className='testresult err'; res.textContent='Choose an image file first.'; return; }
+    $('imgInsertBtn').disabled=true; res.textContent='Uploading…';
+    try{
+      var up=await uploadImage(imgFileSel, function(m){ res.textContent=m; });
+      insertAtCursor('!['+(alt||up.name)+']('+up.url+')\n');
+      closeImgModal();
+      status('Uploaded '+up.name+' and inserted it ✓', 'ok', up.commitUrl, 'view commit');
+    }catch(e){ res.className='testresult err'; res.textContent=e.message||String(e); }
+    finally{ $('imgInsertBtn').disabled=false; }
+  }
+  // paste / drag-drop an image straight into the editor
+  async function dropImage(file){
+    status('Uploading image…', 'info');
+    try{
+      var up=await uploadImage(file, function(m){ status(m, 'info'); });
+      insertAtCursor('!['+up.name+']('+up.url+')\n');
+      status('Uploaded '+up.name+' and inserted it ✓', 'ok', up.commitUrl, 'view commit');
+    }catch(e){ status(e.message||String(e), 'err'); }
   }
 
   // ================= theme & scroll sync =================
@@ -926,6 +1094,13 @@
   elTabPosts.addEventListener('click', function(){ switchTab('posts'); });
   elRefreshBtn.addEventListener('click', function(){ postsLoaded=false; loadPosts(); });
 
+  $('imgInsertBtn').addEventListener('click', imgInsert);
+  $('imgCancelBtn').addEventListener('click', closeImgModal);
+  $('imgFile').addEventListener('change', onImgFile);
+  $('imgTabUpload').addEventListener('click', function(){ setImgTab('upload'); });
+  $('imgTabUrl').addEventListener('click', function(){ setImgTab('url'); });
+  $('imgOverlay').addEventListener('click', function(e){ if(e.target===this) closeImgModal(); });
+
   $('toolbar').addEventListener('click', function(e){
     var b=e.target.closest('button'); if(b && b.dataset.md) applyFormat(b.dataset.md);
   });
@@ -953,6 +1128,26 @@
   elBody.addEventListener('scroll', function(){ if(ui.scrollSync) syncScrollFrom(elBody, elPreviewPane); });
   elPreviewPane.addEventListener('scroll', function(){ if(ui.scrollSync) syncScrollFrom(elPreviewPane, elBody); });
 
+  elBody.addEventListener('paste', function(e){
+    var items=(e.clipboardData&&e.clipboardData.items)||[];
+    for(var i=0;i<items.length;i++){
+      if(items[i].type && items[i].type.indexOf('image/')===0){
+        var f=items[i].getAsFile();
+        if(f){ e.preventDefault(); dropImage(f); return; }
+      }
+    }
+  });
+  elBody.addEventListener('dragover', function(e){
+    var items=(e.dataTransfer&&e.dataTransfer.items)||[];
+    if(Array.prototype.some.call(items, function(it){ return it.kind==='file'; })){ e.preventDefault(); elBody.classList.add('dragover'); }
+  });
+  elBody.addEventListener('dragleave', function(){ elBody.classList.remove('dragover'); });
+  elBody.addEventListener('drop', function(e){
+    var files=(e.dataTransfer&&e.dataTransfer.files)||[];
+    var img=Array.prototype.filter.call(files, function(f){ return f.type.indexOf('image/')===0; })[0];
+    if(img){ e.preventDefault(); elBody.classList.remove('dragover'); dropImage(img); }
+  });
+
   elBody.addEventListener('keydown', function(e){
     var mod=e.ctrlKey||e.metaKey;
     if(e.key==='Tab'){ e.preventDefault(); elBody.setRangeText('  ', elBody.selectionStart, elBody.selectionEnd, 'end'); }
@@ -964,7 +1159,7 @@
     var mod=e.ctrlKey||e.metaKey;
     if(mod && e.key==='Enter'){ e.preventDefault(); publish(); }
     else if(mod && e.key.toLowerCase()==='s'){ e.preventDefault(); saveCurrent(); status('Draft saved locally.', 'ok'); }
-    else if(e.key==='Escape'){ closeModal(); }
+    else if(e.key==='Escape'){ closeModal(); closeImgModal(); }
   });
 
   // ================= boot =================
