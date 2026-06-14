@@ -445,11 +445,20 @@
   // ================= Markdown renderer (self-contained) =================
   function escapeHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+  // Make a markdown image src loadable in the local preview pane:
+  // just-uploaded files use a local blob; site-absolute paths (/blog/\u2026) point at the deployed site.
+  function previewSrc(src){
+    if(localImageBlobs[src]) return localImageBlobs[src];
+    if(/^(https?:)?\/\//i.test(src) || /^data:/i.test(src)) return src;
+    if(src.charAt(0)==='/' && siteOrigin) return siteOrigin + src;
+    return src;
+  }
+
   function inlineMd(raw){
     var codes=[];
     var t = raw.replace(/`([^`]+)`/g, function(m,c){ codes.push(c); return '\uE000'+(codes.length-1)+'\uE000'; });
     t = escapeHtml(t);
-    t = t.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, function(m,alt,src){ return '<img src="'+src+'" alt="'+alt+'">'; });
+    t = t.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, function(m,alt,src){ return '<img src="'+previewSrc(src)+'" alt="'+alt+'">'; });
     t = t.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function(m,txt,href){ return '<a href="'+href+'" target="_blank" rel="noopener">'+txt+'</a>'; });
     t = t.replace(/\*\*([^*]+?)\*\*/g,'<strong>$1</strong>').replace(/__([^_]+?)__/g,'<strong>$1</strong>');
     t = t.replace(/\*([^*\s][^*]*?)\*/g,'<em>$1</em>').replace(/(^|[\s(])_([^_]+?)_(?=$|[\s).,!?])/g,'$1<em>$2</em>');
@@ -804,7 +813,9 @@
   }
 
   // ---------- images ----------
-  var sitePrefix=null; // path part of baseURL, e.g. "/blog" (cached)
+  var sitePrefix=null;   // path part of baseURL, e.g. "/blog" (cached)
+  var siteOrigin='';     // origin of baseURL, e.g. "https://bertobi.github.io"
+  var localImageBlobs={};// inserted-url -> object URL, so just-uploaded images show in the preview
   async function ensureSitePrefix(){
     if(sitePrefix!==null) return sitePrefix;
     sitePrefix='';
@@ -813,7 +824,7 @@
       if(r.ok){
         var t=base64ToUtf8((await r.json()).content);
         var m=t.match(/baseURL\s*=\s*['"]([^'"]+)['"]/i);
-        if(m){ try{ sitePrefix=new URL(m[1]).pathname.replace(/\/+$/,''); }catch(e){} }
+        if(m){ try{ var u=new URL(m[1]); sitePrefix=u.pathname.replace(/\/+$/,''); siteOrigin=u.origin; }catch(e){} }
       }
     }catch(e){}
     return sitePrefix;
@@ -856,7 +867,9 @@
       body:JSON.stringify({ message:'Add image: '+name, content:b64, branch:settings.branch }) });
     var res=await put.json();
     if(!put.ok) throw new Error(res.message||('Image upload failed ('+put.status+')'));
-    return { url:imagePublicUrl(path), name:name, commitUrl:res.commit&&res.commit.html_url };
+    var publicUrl=imagePublicUrl(path);
+    try{ localImageBlobs[publicUrl]=URL.createObjectURL(file); }catch(e){} // show instantly in preview, pre-deploy
+    return { url:publicUrl, name:name, commitUrl:res.commit&&res.commit.html_url };
   }
 
   async function publish(){
@@ -960,7 +973,7 @@
     settings.branch=$('branchInput').value.trim()||DEFAULT_SETTINGS.branch;
     settings.postsPath=$('pathInput').value.trim()||DEFAULT_SETTINGS.postsPath;
     settings.imageDir=($('imageDirInput').value.trim()||DEFAULT_SETTINGS.imageDir).replace(/^\/+|\/+$/g,'');
-    sitePrefix=null; // re-detect from hugo.toml (repo/branch may have changed)
+    sitePrefix=null; siteOrigin=''; // re-detect from hugo.toml (repo/branch may have changed)
     save(K_TOKEN, token);
     save(K_SETTINGS, settings);
     updateFilename();
@@ -1176,7 +1189,10 @@
   switchTab(ui.tab);
 
   if(!token){ openModal(); }
-  else{ status('Ready. Publishing to '+settings.owner+'/'+settings.repo+' on "'+settings.branch+'".'); }
+  else{
+    status('Ready. Publishing to '+settings.owner+'/'+settings.repo+' on "'+settings.branch+'".');
+    ensureSitePrefix().then(function(){ updatePreview(); }); // so image previews resolve to the deployed site
+  }
 })();
 </script>
 </body>
