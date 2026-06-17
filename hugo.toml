@@ -11,3 +11,15 @@ theme = 'paper'
   # Analytics: your GoatCounter site code (e.g. 'tobiasblog' for tobiasblog.goatcounter.com).
   # Leave empty to disable. Create a free site at https://www.goatcounter.com.
   goatcounter = 'tobi19'
+
+# Comments via Giscus (GitHub Discussions). Requires the giscus app installed on
+# the repo: https://github.com/apps/giscus  — set `comments = false` in a post's
+# front matter to hide comments on that post.
+[params.giscus]
+  repo = 'BerTobi/blog'
+  repoId = 'R_kgDORsnHwA'
+  category = 'Announcements'
+  categoryId = 'DIC_kwDORsnHwM4C_VJP'
+  mapping = 'pathname'
+  reactionsEnabled = '1'
+  theme = 'preferred_color_scheme'
