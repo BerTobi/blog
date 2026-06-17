@@ -85,6 +85,10 @@
   .draft .dm{font-size:11px; color:var(--muted); margin-top:2px; display:flex; gap:6px; align-items:center}
   .draft .badge{font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--ok); border:1px solid var(--ok); border-radius:4px; padding:0 4px}
   .draft .badge.amber{color:var(--accent); border-color:var(--accent)}
+  .draft .views{float:right; font-weight:700; color:var(--accent); font-variant-numeric:tabular-nums; padding-left:8px}
+  .stattotal{margin:8px 8px 4px; padding:12px 14px; border:1px solid var(--line); border-radius:10px; background:var(--bg)}
+  .stattotal .n{font-size:22px; font-weight:700; color:var(--accent); font-variant-numeric:tabular-nums}
+  .stattotal .l{font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin-top:2px}
   .draft .del{position:absolute; top:7px; right:7px; opacity:0; border:none; background:none; color:var(--muted); font-size:14px; line-height:1; padding:2px 4px; border-radius:5px}
   .draft:hover .del{opacity:1}
   .draft .del:hover{color:var(--err); background:var(--bg)}
@@ -198,14 +202,17 @@
     <div class="aside-tabs">
       <button class="tab on" id="tabDrafts" data-tab="drafts">Drafts</button>
       <button class="tab" id="tabPosts" data-tab="posts">Posts</button>
+      <button class="tab" id="tabStats" data-tab="stats">Stats</button>
     </div>
     <div class="aside-head">
       <span class="title" id="asideHint">Local, unpublished</span>
       <button class="newbtn" id="newBtn">+ New</button>
       <button class="newbtn" id="refreshPostsBtn" style="display:none">↻ Refresh</button>
+      <button class="newbtn" id="refreshStatsBtn" style="display:none">↻ Refresh</button>
     </div>
     <div class="draftlist" id="draftList"></div>
     <div class="draftlist" id="postList" style="display:none"></div>
+    <div class="draftlist" id="statsList" style="display:none"></div>
   </aside>
 
   <div class="editor-area">
@@ -303,6 +310,10 @@
         <label for="imageDirInput">Images folder</label>
         <input id="imageDirInput" type="text" autocomplete="off" placeholder="static/images">
       </div>
+      <div class="col">
+        <label for="goatcounterInput">GoatCounter code <span style="text-transform:none;font-weight:400">(for Stats)</span></label>
+        <input id="goatcounterInput" type="text" autocomplete="off" placeholder="e.g. tobiasblog">
+      </div>
     </div>
     <p class="hint" id="branchHint"></p>
 
@@ -358,7 +369,7 @@
   // ---------- storage keys ----------
   var K_TOKEN='bp_token', K_SETTINGS='bp_settings', K_DRAFTS='bp_drafts', K_CURRENT='bp_current', K_UI='bp_ui', K_THEME='bp_theme';
 
-  var DEFAULT_SETTINGS = { owner:'BerTobi', repo:'blog', branch:'master', postsPath:'content/posts', imageDir:'static/images' };
+  var DEFAULT_SETTINGS = { owner:'BerTobi', repo:'blog', branch:'master', postsPath:'content/posts', imageDir:'static/images', goatcounter:'' };
 
   // ---------- tiny helpers ----------
   var $ = function(id){ return document.getElementById(id); };
@@ -577,20 +588,21 @@
   var ui = load(K_UI, {});
   if(ui.sidebar===undefined) ui.sidebar=true;
   if(ui.scrollSync===undefined) ui.scrollSync=true;
-  if(ui.tab!=='posts') ui.tab='drafts';
+  if(ui.tab!=='posts' && ui.tab!=='stats') ui.tab='drafts';
   var theme = load(K_THEME, null) || document.documentElement.getAttribute('data-theme') || 'light';
   var remotePosts = [];        // [{name, path, sha, title, draft, enriched}]
   var postCache = {};          // path -> {sha, text}
-  var postsLoaded = false;
+  var postsLoaded = false, statsLoaded = false;
 
   // element refs
   var elTitle=$('title'), elDate=$('date'), elTags=$('tags'), elBody=$('body'), elDraft=$('draftToggle'),
       elDraftLabel=$('draftLabel'), elPreview=$('preview'), elPreviewPane=$('preview').parentElement,
       elFilename=$('filenamePreview'), elWordcount=$('wordcount'),
-      elDraftList=$('draftList'), elPostList=$('postList'), elStatusbar=$('statusbar'), elStatusMsg=$('statusmsg'),
+      elDraftList=$('draftList'), elPostList=$('postList'), elStatsList=$('statsList'),
+      elStatusbar=$('statusbar'), elStatusMsg=$('statusmsg'),
       elSaveState=$('savestate'), elSidebar=$('sidebar'), elThemeBtn=$('themeBtn'), elSyncBtn=$('syncBtn'),
-      elTabDrafts=$('tabDrafts'), elTabPosts=$('tabPosts'), elNewBtn=$('newBtn'),
-      elRefreshBtn=$('refreshPostsBtn'), elAsideHint=$('asideHint');
+      elTabDrafts=$('tabDrafts'), elTabPosts=$('tabPosts'), elTabStats=$('tabStats'), elNewBtn=$('newBtn'),
+      elRefreshBtn=$('refreshPostsBtn'), elRefreshStatsBtn=$('refreshStatsBtn'), elAsideHint=$('asideHint');
 
   // ---------- drafts ----------
   function currentDraft(){
@@ -684,17 +696,22 @@
 
   // ---------- remote post management ----------
   function switchTab(tab){
-    ui.tab = (tab==='posts') ? 'posts' : 'drafts';
+    ui.tab = (tab==='posts'||tab==='stats') ? tab : 'drafts';
     save(K_UI, ui);
-    var posts = ui.tab==='posts';
-    elTabDrafts.classList.toggle('on', !posts);
-    elTabPosts.classList.toggle('on', posts);
-    elDraftList.style.display = posts?'none':'';
-    elPostList.style.display = posts?'':'none';
-    elNewBtn.style.display = posts?'none':'';
-    elRefreshBtn.style.display = posts?'':'none';
-    elAsideHint.textContent = posts ? ('Published in '+settings.owner+'/'+settings.repo) : 'Local, unpublished';
-    if(posts && !postsLoaded){ loadPosts(); }
+    var t=ui.tab;
+    elTabDrafts.classList.toggle('on', t==='drafts');
+    elTabPosts.classList.toggle('on', t==='posts');
+    elTabStats.classList.toggle('on', t==='stats');
+    elDraftList.style.display = t==='drafts'?'':'none';
+    elPostList.style.display = t==='posts'?'':'none';
+    elStatsList.style.display = t==='stats'?'':'none';
+    elNewBtn.style.display = t==='drafts'?'':'none';
+    elRefreshBtn.style.display = t==='posts'?'':'none';
+    elRefreshStatsBtn.style.display = t==='stats'?'':'none';
+    elAsideHint.textContent = t==='posts' ? ('Published in '+settings.owner+'/'+settings.repo)
+                            : t==='stats' ? 'Views (via GoatCounter)' : 'Local, unpublished';
+    if(t==='posts' && !postsLoaded){ loadPosts(); }
+    if(t==='stats' && !statsLoaded){ loadStats(); }
   }
 
   function renderPostList(stateMsg){
@@ -772,6 +789,63 @@
 
   function newBlankDraftObject(){
     return { id:uid(), title:'', date:todayISO(), tags:'', body:'', hugoDraft:false, updatedAt:Date.now(), published:false, publishedFile:'', publishedAsDraft:false, repoPath:null, repoSha:null };
+  }
+
+  // ---------- stats (GoatCounter) ----------
+  function gcBase(){
+    var c=(settings.goatcounter||'').trim().replace(/^https?:\/\//,'').replace(/\/.*$/,'');
+    if(!c) return '';
+    return c.indexOf('.')>=0 ? 'https://'+c : 'https://'+c+'.goatcounter.com';
+  }
+  // Site path GoatCounter records for a post = baseURL path + section + slug (Hugo default permalinks).
+  function postSitePath(name){
+    var section=settings.postsPath.replace(/\/$/,'').replace(/^content\//,'');
+    return (sitePrefix||'')+'/'+section+'/'+name.replace(/\.md$/i,'')+'/';
+  }
+  async function gcCount(base, path){
+    try{
+      var seg = path==='TOTAL' ? 'TOTAL' : encodeURIComponent(path);
+      var r=await fetch(base+'/counter/'+seg+'.json');
+      if(!r.ok) return null;
+      return (await r.json()).count;
+    }catch(e){ return null; }
+  }
+  function renderStatsList(stateMsg, total, rows){
+    if(stateMsg){ elStatsList.innerHTML='<div class="emptydrafts">'+escapeHtml(stateMsg)+'</div>'; return; }
+    var html='<div class="stattotal"><div class="n">'+escapeHtml(total==null?'—':String(total))+'</div><div class="l">total views</div></div>';
+    if(!rows.length){ html+='<div class="emptydrafts">No posts to report on.</div>'; }
+    rows.forEach(function(p){
+      html += '<div class="draft" data-post="'+encodeURIComponent(p.path)+'">'
+        + '<div class="dt"><span class="views">'+escapeHtml(p.views==null?'—':String(p.views))+'</span>'+escapeHtml(p.title||deriveTitle(p.name))+'</div>'
+        + '<div class="dm"><span>'+escapeHtml(p.name)+'</span></div>'
+        + '</div>';
+    });
+    elStatsList.innerHTML=html;
+  }
+  function viewsToNum(s){ return s==null?-1:(parseInt(String(s).replace(/[^0-9]/g,''),10)||0); }
+
+  async function loadStats(){
+    var base=gcBase();
+    if(!base){ statsLoaded=false; renderStatsList('Set your GoatCounter code in Settings to see view stats.'); return; }
+    if(!token){ statsLoaded=false; renderStatsList('Add a GitHub token in Settings to list posts for stats.'); return; }
+    statsLoaded=true;
+    renderStatsList('Loading view stats…', null, []);
+    try{
+      await ensureSitePrefix();
+      var files = remotePosts.length ? remotePosts : (await ghListPosts()).map(function(f){ return { name:f.name, path:f.path }; });
+      var totalP = gcCount(base, 'TOTAL');
+      var rows = await Promise.all(files.map(function(f){
+        return gcCount(base, postSitePath(f.name)).then(function(c){
+          return { name:f.name, path:f.path, title:f.title||'', views:c };
+        });
+      }));
+      var total = await totalP;
+      rows.sort(function(a,b){ return viewsToNum(b.views)-viewsToNum(a.views); });
+      renderStatsList(null, total, rows);
+    }catch(e){
+      statsLoaded=false;
+      renderStatsList(e.message||String(e));
+    }
   }
 
   // ---------- status ----------
@@ -960,6 +1034,7 @@
     $('branchInput').value=settings.branch;
     $('pathInput').value=settings.postsPath;
     $('imageDirInput').value=settings.imageDir;
+    $('goatcounterInput').value=settings.goatcounter||'';
     $('branchHint').innerHTML='Deploys run from the branch your GitHub Actions workflow watches. For this repo that is <code>master</code>.';
     $('testResult').textContent='';
     $('overlay').classList.add('show');
@@ -973,7 +1048,9 @@
     settings.branch=$('branchInput').value.trim()||DEFAULT_SETTINGS.branch;
     settings.postsPath=$('pathInput').value.trim()||DEFAULT_SETTINGS.postsPath;
     settings.imageDir=($('imageDirInput').value.trim()||DEFAULT_SETTINGS.imageDir).replace(/^\/+|\/+$/g,'');
+    settings.goatcounter=$('goatcounterInput').value.trim();
     sitePrefix=null; siteOrigin=''; // re-detect from hugo.toml (repo/branch may have changed)
+    statsLoaded=false;
     save(K_TOKEN, token);
     save(K_SETTINGS, settings);
     updateFilename();
@@ -1105,7 +1182,9 @@
   $('overlay').addEventListener('click', function(e){ if(e.target===this) closeModal(); });
   elTabDrafts.addEventListener('click', function(){ switchTab('drafts'); });
   elTabPosts.addEventListener('click', function(){ switchTab('posts'); });
+  elTabStats.addEventListener('click', function(){ switchTab('stats'); });
   elRefreshBtn.addEventListener('click', function(){ postsLoaded=false; loadPosts(); });
+  elRefreshStatsBtn.addEventListener('click', function(){ statsLoaded=false; loadStats(); });
 
   $('imgInsertBtn').addEventListener('click', imgInsert);
   $('imgCancelBtn').addEventListener('click', closeImgModal);
@@ -1128,6 +1207,11 @@
   elPostList.addEventListener('click', function(e){
     var del=e.target.closest('[data-delpost]');
     if(del){ e.stopPropagation(); deletePost(decodeURIComponent(del.dataset.delpost)); return; }
+    var card=e.target.closest('[data-post]');
+    if(card){ openRemotePost(decodeURIComponent(card.dataset.post)); }
+  });
+
+  elStatsList.addEventListener('click', function(e){
     var card=e.target.closest('[data-post]');
     if(card){ openRemotePost(decodeURIComponent(card.dataset.post)); }
   });

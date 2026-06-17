@@ -1,0 +1,27 @@
+<footer
+  class="mx-auto flex h-[4.5rem] max-w-(--w) items-center px-8 text-xs tracking-wider uppercase opacity-60"
+>
+  <div class="mr-auto">
+    {{- if site.Copyright -}} {{- site.Copyright -}} {{- else -}} &copy; {{-
+    now.Year }}
+    <a class="link" href="{{- `` | absURL -}}">{{- site.Title -}}</a>
+    {{- end -}}
+  </div>
+  <a class="link mx-6" href="https://gohugo.io/" rel="noopener" target="_blank"
+    >powered by hugo️️</a
+  >️
+  <a
+    class="link"
+    href="https://github.com/nanxiaobei/hugo-paper"
+    rel="noopener"
+    target="_blank"
+    >hugo-paper</a
+  >
+</footer>
+
+{{- /* GoatCounter analytics — set `goatcounter` under [params] in hugo.toml.
+       Value is your site code (e.g. "tobiasblog") or a full stats host. */ -}}
+{{- with site.Params.goatcounter -}}
+{{- $endpoint := cond (strings.Contains . "/") . (cond (strings.Contains . ".") (printf "https://%s/count" .) (printf "https://%s.goatcounter.com/count" .)) -}}
+<script data-goatcounter="{{ $endpoint }}" async src="//gc.zgo.at/count.js"></script>
+{{- end -}}

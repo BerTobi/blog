@@ -8,3 +8,6 @@ theme = 'paper'
   avatar = ''
   name = 'Tobias'
   bio = ''
+  # Analytics: your GoatCounter site code (e.g. 'tobiasblog' for tobiasblog.goatcounter.com).
+  # Leave empty to disable. Create a free site at https://www.goatcounter.com.
+  goatcounter = ''

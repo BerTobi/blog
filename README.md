@@ -58,9 +58,39 @@ GitHub — it's never committed. You'll re-enter it once per device.
 - **Stage as draft** — check this to commit the post with `draft: true`. It lands
   in the repo (and syncs across machines) but stays hidden from the live site
   until you uncheck it and re-publish.
+- **Manage posts** — the **Posts** tab lists everything in `content/posts/`; click
+  to edit (changes commit back to the same file, preserving the URL) or delete.
+- **Images** — the 🖼 button (or paste / drag-drop into the editor) uploads an
+  image to `static/images/` and inserts the Markdown reference.
+- **Stats** — the **Stats** tab shows total and per-post view counts (see below).
 - **Light/dark theme** toggle (`☾`/`☀`) and **editor↔preview scroll sync** (`⇅`).
 - **Shortcuts** — `Ctrl/Cmd+B` bold, `Ctrl/Cmd+I` italic, `Ctrl/Cmd+K` link,
   `Ctrl/Cmd+S` save draft, `Ctrl/Cmd+Enter` publish.
 
 > **Note:** the live preview uses a built-in Markdown renderer — it's a close
 > approximation of Hugo's output, not an exact match.
+
+## Analytics (GoatCounter)
+
+Views are tracked with [GoatCounter](https://www.goatcounter.com) — a free,
+privacy-friendly, cookie-less analytics service (no consent banner needed).
+
+**Setup (one time):**
+
+1. Create a free site at <https://www.goatcounter.com> — pick a code, e.g.
+   `tobiasblog` (your dashboard becomes `tobiasblog.goatcounter.com`).
+2. Set that code in `hugo.toml` under `[params]`:
+   ```toml
+   [params]
+     goatcounter = 'tobiasblog'
+   ```
+   This injects the tracking snippet site-wide (via `layouts/partials/footer.html`).
+   Leave it empty to disable. Commit + deploy, and views start counting.
+3. To see stats **inside the Blog Publisher tool**, also enter the same code in
+   the tool's **Settings → GoatCounter code**, and in GoatCounter enable
+   **Settings → "Allow adding visitor counts on your website"** (off by default).
+   The **Stats** tab then shows total + per-post views, pulled from GoatCounter's
+   public counter endpoint.
+
+Full analytics (referrers, browsers, time series) live in your GoatCounter
+dashboard. The tool's Stats tab is a quick at-a-glance view counter.
