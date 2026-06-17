@@ -1,26 +1,28 @@
-<footer
-  class="mx-auto flex h-[4.5rem] max-w-(--w) items-center px-8 text-xs tracking-wider uppercase opacity-60"
->
-  <div class="mr-auto">
-    {{- if site.Copyright -}} {{- site.Copyright -}} {{- else -}} &copy; {{-
-    now.Year }}
-    <a class="link" href="{{- `` | absURL -}}">{{- site.Title -}}</a>
-    {{- end -}}
+<footer class="site">
+  <div class="wrap">
+    <span class="pr">READY.</span>
+    <span>© {{ now.Year }} {{ site.Params.name }} · served warm ❤</span>
+    <span class="right">
+      <a href="{{ "index.xml" | relURL }}">rss</a> ·
+      <a href="https://github.com/BerTobi/blog" rel="noopener" target="_blank">github</a>
+    </span>
   </div>
-  <a class="link mx-6" href="https://gohugo.io/" rel="noopener" target="_blank"
-    >powered by hugo️️</a
-  >️
-  <a
-    class="link"
-    href="https://github.com/nanxiaobei/hugo-paper"
-    rel="noopener"
-    target="_blank"
-    >hugo-paper</a
-  >
 </footer>
 
-{{- /* GoatCounter analytics — set `goatcounter` under [params] in hugo.toml.
-       Value is your site code (e.g. "tobiasblog") or a full stats host. */ -}}
+<script>
+  (function(){
+    var b=document.getElementById('themeToggle');
+    if(!b) return;
+    b.addEventListener('click',function(){
+      var d=document.documentElement, dark=d.getAttribute('data-theme')==='dark';
+      var next=dark?'light':'dark';
+      d.setAttribute('data-theme',next);
+      try{localStorage.setItem('theme',next);}catch(e){}
+    });
+  })();
+</script>
+
+{{- /* GoatCounter analytics — set `goatcounter` under [params] in hugo.toml. */ -}}
 {{- with site.Params.goatcounter -}}
 {{- $endpoint := cond (strings.Contains . "/") . (cond (strings.Contains . ".") (printf "https://%s/count" .) (printf "https://%s.goatcounter.com/count" .)) -}}
 <script data-goatcounter="{{ $endpoint }}" async src="//gc.zgo.at/count.js"></script>

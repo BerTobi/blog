@@ -1,0 +1,20 @@
+<header class="site">
+  <div class="bar">
+    <a class="logo" href="{{ site.Home.RelPermalink }}" aria-label="Home">T</a>
+    <div class="brand">
+      <a class="name" href="{{ site.Home.RelPermalink }}">{{ site.Params.name | upper }}</a>
+      <div class="tagline">~/ai-research · life — buenos aires</div>
+    </div>
+    <div class="spacer"></div>
+    <nav class="main">
+      {{- /* sections (categories) that actually have posts — driven by content */ -}}
+      {{- range slice "research" "life" "fiction" -}}
+        {{- with $.Site.GetPage (printf "/categories/%s" .) -}}
+          <a href="{{ .RelPermalink }}"{{ if $.IsDescendant . }} class="on"{{ end }}>{{ .Title | lower }}</a>
+        {{- end -}}
+      {{- end -}}
+      {{- with site.GetPage "/about" }}<a href="{{ .RelPermalink }}"{{ if eq $.RelPermalink .RelPermalink }} class="on"{{ end }}>about</a>{{ end -}}
+    </nav>
+    <button class="toggle" id="themeToggle" type="button" aria-label="Toggle light/dark">theme</button>
+  </div>
+</header>

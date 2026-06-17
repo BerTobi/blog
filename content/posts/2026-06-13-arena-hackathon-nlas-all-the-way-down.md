@@ -1,6 +1,7 @@
 ---
 title: "ARENA Hackathon - NLAs all the way down"
 date: 2026-06-13
+categories: ["research"]
 tags: ["AI Safety", "NLA", "Interp"]
 draft: false
 ---

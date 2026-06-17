@@ -1,0 +1,13 @@
+{{ define "main" }}
+<section class="intro">
+  <div class="ready">READY.</div>
+  <p class="lead"><span class="hi">Hi, I'm {{ site.Params.name }}.</span> {{ site.Params.bio }}<span class="cursor"></span></p>
+</section>
+
+<div class="seclabel"><span class="pr">&gt;</span> recent_writing <span class="rule"></span></div>
+<ul class="posts">
+  {{ range first 10 (where site.RegularPages "Section" "posts") }}
+    {{ partial "postcard.html" . }}
+  {{ end }}
+</ul>
+{{ end }}

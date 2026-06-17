@@ -1,13 +1,12 @@
 baseURL = 'https://bertobi.github.io/blog/'
 languageCode = 'en-us'
 title = "Tobias's Blog"
-theme = 'paper'
 
 [params]
-  color = 'linen'
-  avatar = ''
   name = 'Tobias'
-  bio = ''
+  author = 'Tobias'
+  description = 'AI interpretability research, and notes on figuring life out — from Buenos Aires.'
+  bio = 'I research how models think, and keep notes on figuring life out — from Buenos Aires.'
   # Analytics: your GoatCounter site code (e.g. 'tobiasblog' for tobiasblog.goatcounter.com).
   # Leave empty to disable. Create a free site at https://www.goatcounter.com.
   goatcounter = 'tobi19'
@@ -23,3 +22,10 @@ theme = 'paper'
   mapping = 'pathname'
   reactionsEnabled = '1'
   theme = 'preferred_color_scheme'
+
+[markup.goldmark.renderer]
+  unsafe = true   # allow raw HTML in posts (e.g. images inserted by the publisher)
+
+[markup.highlight]
+  noClasses = false
+  guessSyntax = true
