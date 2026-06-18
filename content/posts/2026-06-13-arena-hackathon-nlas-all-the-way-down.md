@@ -11,15 +11,15 @@ draft: false
 
 ## TL;DR
 
-A [natural language autoencoder (NLA)](https://transformer-circuits.pub/2026/nla/index.html) is a tool that translates a model's internal activations into English. We (Me and Claude), used the NLA to explain it's own internal estate. When the verbalizer made up a fact, we read its own activations and passed them through the same NLA to see whether the readout would give signs of it being a fabrication. It didn't. A confabulating state and a faithful one produce the same confident description, with no hedging and no sign that anything was invented. Our reading: confabulation is confident, the model isn't internally flagging doubt, so a self-readout has nothing to surface.
+A [natural language autoencoder (NLA)](https://transformer-circuits.pub/2026/nla/index.html) is a tool that translates a model's internal activations into English. We (Me and Claude), used the NLA to explain its own internal state. When the verbalizer made up a fact, we read its own activations and passed them through the same NLA to see whether the readout would give signs of it being a fabrication. It didn't. A confabulating state and a faithful one produce the same confident description, with no hedging and no sign that anything was invented. Our reading: confabulation is confident, the model isn't internally flagging doubt, so a self-readout has nothing to surface.
 
 ## What we tested
 
-An NLA is a pair of fine-tuned models. The verbalizer (AV) maps an activation vector to a sentence ("This activation is about X"); the reconstructor (AR) maps that sentence back to a vector, which lets you score how faithfully the words captured the original. Gluing these 2 LLMs together (They are both the same model), one can train them using reconstruction as their main optimization pressure.  
+An NLA is a pair of fine-tuned models. The verbalizer (AV) maps an activation vector to a sentence ("This activation is about X"); the reconstructor (AR) maps that sentence back to a vector, which lets you score how faithfully the words captured the original. Gluing these two LLMs together (They are both the same model), one can train them using reconstruction as their main optimization pressure.  
 
 By *confabulation*, we mean the verbalizer asserting a specific detail that the source text doesn't support, like a made-up name, date, or number.
 
-The verbalizer is itself a model with internal states. So we take the verbalizer's own layer-20 activations (The layer selection is actually a limitation of the NLA selected) while it is verbalizing, and feed them back through the same NLA, we call this second pass NLA2. NLA2's output is a readout of the verbalizer's own internal state. The question is: when the verbalizer confabulates, does NLA2's readout of that moment look any difference from when it's faithful?
+The verbalizer is itself a model with internal states. So we take the verbalizer's own layer-20 activations (The layer selection is actually a limitation of the NLA selected) while it is verbalizing, and feed them back through the same NLA, we call this second pass NLA2. NLA2's output is a readout of the verbalizer's own internal state. The question is: when the verbalizer confabulates, does NLA2's readout of that moment look any different from when it's faithful?
 
 To study this question we used Qwen-2.5-7B and its corresponding NLA.
 
@@ -36,7 +36,7 @@ second"). Nothing in the register distinguishes them.*
 
 Both columns are the same template: *"structured [wiki / article] format … establishing
 … the sentence …."* The confabulating readouts narrate the made-up content as flatly as
-any fact; none of them says "uncertain", "possibly fabricated", or "I'm guessing". Neither a human nor a model can tell which column a readout came from.
+any fact; none of them says "uncertain", "possibly fabricated", or "I'm guessing". Neither a human nor a model can tell which column a readout came from once you strip the topic words.
 
 We can put a number on that absence of doubt. Scanning all 2,073 readouts for
 fabrication-flagging words ("fabricated", "made up", "false", "invented", "unsupported"),
@@ -66,7 +66,7 @@ rating has no headroom to separate the sets. NLA2's readouts are uniformly gener
 
 The simplest reading is that confabulation is confident, or at least that the model doesn't have any trace of uncertainty when confabulating. The moment the verbalizer invents a fact, its internal state encodes "I am emitting a structured article about this topic", not "I am unsure" or "I am inventing this". There is no internal uncertainty to surface, so NLA2 just reports "structured format about X".
 
-There are a few things we can't be sure about though, for once, a trace might exist but the readout can't express it. The verbalization is lossy and generic descriptions could be its ceiling. The second one, Qwen 2.5 7B being a small model, could maybe not contain any traces of self awareness about not knowing while bigger models could have them, that's open to more experimentation. We are not claiming that the underlying state contains no signal, only that this readout does not surface one. 
+There are a few things we can't be sure about though, for one, a trace might exist but the readout can't express it. The verbalization is lossy and generic descriptions could be its ceiling. The second one, Qwen 2.5 7B being a small model, could maybe not contain any traces of self-awareness about not knowing while bigger models could have them, that's open to more experimentation. We are not claiming that the underlying state contains no signal, only that this readout does not surface one. 
 
 ## Building the dataset
  
@@ -91,5 +91,5 @@ Could it be possible that we simply didn't look hard enough? Surely a classifier
 
 - The control set is the experiment. Every near-miss false positive we caught lived in
   how we decided a readout was faithful, not in the modeling.
-- A model that is fabricating doesn't
-  necessarily represent itself as uncertain, so don't expect its self-report to flag it.
+- A verbalizer that is fabricating doesn't
+  necessarily represent itself as uncertain, so don't expect its self-report to flag it. (Whether this holds for a model confabulating during its own generation is untested, and the obvious next experiment.)
