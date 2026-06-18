@@ -2,7 +2,7 @@
 title: "ARENA 8.0 Hackathon - NLAs all the way down"
 date: 2026-06-13
 tags: ["AI Safety", "NLA", "Interp"]
-draft: true
+draft: false
 ---
 
 # NLAs all the way down: a verbalizer's self-readout doesn't reveal when it's making things up
