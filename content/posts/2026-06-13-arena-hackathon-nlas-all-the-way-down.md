@@ -15,6 +15,9 @@ A [natural language autoencoder (NLA)](https://transformer-circuits.pub/2026/nla
 
 ## What we tested
 
+
+![fig-pipeline.png](/blog/images/fig-pipeline.png)
+
 An NLA is a pair of fine-tuned models. The verbalizer (AV) maps an activation vector to a sentence ("This activation is about X"); the reconstructor (AR) maps that sentence back to a vector, which lets you score how faithfully the words captured the original. Gluing these two LLMs together (They are both the same model), one can train them using reconstruction as their main optimization pressure.  
 
 By *confabulation*, we mean the verbalizer asserting a specific detail that the source text doesn't support, like a made-up name, date, or number.
@@ -23,9 +26,12 @@ The verbalizer is itself a model with internal states. So we take the verbalizer
 
 To study this question we used Qwen-2.5-7B and its corresponding NLA.
 
+
+
 ## The result
 
 ![Six NLA2 readouts of the verbalizer's own state, confabulating on the left and faithful on the right, in the same confident register.](/blog/images/fig-readouts-emi3.png)
+
 
 *Figure 1. What NLA2 writes when it reads the verbalizer's own state. Left: moments
 where the verbalizer confabulated. Right: moments where it was faithful. The left column
@@ -53,11 +59,12 @@ holds together in the first place (transfer cosine 0.80). The states are legible
 
 ## How did we test for confabulation?
 
-We ran an independent model judge (Gemma-4-12B) rating each readout 1-5 for how ungrounded it is. It found no difference between confabulating (3.73) and faithful (3.89) readouts.
+We ran an independent model judge (Gemma-4-12B) rating each readout 1-5 for how vague it is. It found no difference between confabulating (3.73) and faithful (3.89) readouts.
 
-![Distribution of the judge's 1–5 ungroundedness rating for both sets; the two are nearly identical and both pile up at 4–5.](/blog/images/fig-ceiling.png)
+![Distribution of the judge's 1–5 vagueness rating for both sets; the two are nearly identical and both pile up at 4–5.](/blog/images/fig-ceiling-ve68.png)
 
-*Figure 2. The judge rates almost every readout 4 or 5 out of 5 for "ungroundedness", in
+
+*Figure 2. The judge rates almost every readout 4 or 5 out of 5 for "vagueness", in
 both sets, about 82% overall. The two distributions sit on top of each other, so the
 rating has no headroom to separate the sets. NLA2's readouts are uniformly generic
 ("format/pattern"-like), which is why none of them carry a confabulation-specific signal.*
